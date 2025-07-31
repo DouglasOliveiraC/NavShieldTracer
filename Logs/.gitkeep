@@ -1,0 +1,2 @@
+# Esta pasta contém os logs gerados pelo NavShieldTracer
+# Os logs são organizados em subpastas: {timestamp}_{processo}_{pid}/

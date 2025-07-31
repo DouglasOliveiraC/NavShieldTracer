@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Configuração Sysmon Completa para NavShieldTracer
+  
+  Esta configuração é otimizada para capturar todos os tipos de eventos
+  necessários para análise completa de comportamento de software.
+  
+  Para aplicar esta configuração:
+  1. Salve este arquivo como sysmon-config-completa.xml
+  2. Execute como administrador: sysmon -c sysmon-config-completa.xml
+  
+  ATENÇÃO: Esta configuração gera MUITOS logs. Use apenas para análise
+  específica e em ambientes controlados.
+-->
+<Sysmon schemaversion="4.70">
+  <EventFiltering>
+    
+    <!-- Event ID 1: Process Creation - Captura todos os processos -->
+    <ProcessCreate onmatch="exclude">
+      <!-- Excluir apenas processos muito verbosos do sistema -->
+      <Image condition="is">C:\Windows\System32\conhost.exe</Image>
+      <ParentImage condition="is">C:\Windows\System32\backgroundTaskHost.exe</ParentImage>
+    </ProcessCreate>
+
+    <!-- Event ID 2: File Creation Time Changed - Captura mudanças de timestamp -->
+    <FileCreateTime onmatch="include">
+      <!-- Capturar todas as mudanças de timestamp -->
+      <TargetFilename condition="contains">.</TargetFilename>
+    </FileCreateTime>
+
+    <!-- Event ID 3: Network Connection - Captura conexões de rede -->
+    <NetworkConnect onmatch="include">
+      <!-- Capturar todas as conexões de rede -->
+      <Initiated condition="is">true</Initiated>
+    </NetworkConnect>
+
+    <!-- Event ID 5: Process Termination - Captura encerramento de processos -->
+    <ProcessTerminate onmatch="include">
+      <!-- Capturar todos os encerramentos -->
+      <Image condition="contains">.</Image>
+    </ProcessTerminate>
+
+    <!-- Event ID 6: Driver Load - Desabilitado para reduzir volume -->
+    <DriverLoad onmatch="exclude">
+      <Signature condition="contains">Microsoft</Signature>
+    </DriverLoad>
+
+    <!-- Event ID 7: Image/DLL Load - Desabilitado para reduzir volume -->
+    <ImageLoad onmatch="exclude">
+      <Signed condition="is">true</Signed>
+    </ImageLoad>
+
+    <!-- Event ID 8: Create Remote Thread - Captura criação de threads remotas -->
+    <CreateRemoteThread onmatch="include">
+      <!-- Capturar todas as threads remotas -->
+      <SourceImage condition="contains">.</SourceImage>
+    </CreateRemoteThread>
+
+    <!-- Event ID 9: Raw Access Read - Captura acesso raw a disco -->
+    <RawAccessRead onmatch="include">
+      <!-- Capturar todos os acessos raw -->
+      <Device condition="contains">\</Device>
+    </RawAccessRead>
+
+    <!-- Event ID 10: Process Access - Captura acesso entre processos -->
+    <ProcessAccess onmatch="include">
+      <!-- Capturar todos os acessos a processos -->
+      <SourceImage condition="contains">.</SourceImage>
+    </ProcessAccess>
+
+    <!-- Event ID 11: File Create - IMPORTANTE: Captura criação de arquivos -->
+    <FileCreate onmatch="include">
+      <!-- Capturar TODOS os arquivos criados -->
+      <TargetFilename condition="contains">.</TargetFilename>
+    </FileCreate>
+
+    <!-- Event ID 12: Registry Event (Object create/delete) -->
+    <RegistryEvent onmatch="include">
+      <!-- Capturar todas as operações de registro -->
+      <TargetObject condition="contains">HKEY_</TargetObject>
+    </RegistryEvent>
+
+    <!-- Event ID 13: Registry Event (Value Set) -->
+    <RegistryEvent onmatch="include">
+      <!-- Capturar todas as definições de valores -->
+      <TargetObject condition="contains">HKEY_</TargetObject>
+    </RegistryEvent>
+
+    <!-- Event ID 14: Registry Event (Key and Value Rename) -->
+    <RegistryEvent onmatch="include">
+      <!-- Capturar todas as renomeações -->
+      <TargetObject condition="contains">HKEY_</TargetObject>
+    </RegistryEvent>
+
+    <!-- Event ID 15: File Create Stream Hash - Captura streams NTFS -->
+    <FileCreateStreamHash onmatch="include">
+      <!-- Capturar todos os streams -->
+      <TargetFilename condition="contains">:</TargetFilename>
+    </FileCreateStreamHash>
+
+    <!-- Event ID 17: Pipe Created - Captura criação de pipes -->
+    <PipeEvent onmatch="include">
+      <!-- Capturar todos os pipes -->
+      <PipeName condition="contains">\</PipeName>
+    </PipeEvent>
+
+    <!-- Event ID 18: Pipe Connected - Captura conexões a pipes -->
+    <PipeEvent onmatch="include">
+      <!-- Capturar todas as conexões -->
+      <PipeName condition="contains">\</PipeName>
+    </PipeEvent>
+
+    <!-- Event ID 19-21: WMI Events - Captura eventos WMI -->
+    <WmiEvent onmatch="include">
+      <!-- Capturar todos os eventos WMI -->
+      <Operation condition="contains">.</Operation>
+    </WmiEvent>
+
+    <!-- Event ID 22: DNS Query - IMPORTANTE: Captura consultas DNS -->
+    <DnsQuery onmatch="include">
+      <!-- Capturar TODAS as consultas DNS -->
+      <QueryName condition="contains">.</QueryName>
+    </DnsQuery>
+
+    <!-- Event ID 23: File Delete - IMPORTANTE: Captura exclusão de arquivos -->
+    <FileDelete onmatch="include">
+      <!-- Capturar TODOS os arquivos deletados -->
+      <TargetFilename condition="contains">.</TargetFilename>
+    </FileDelete>
+
+    <!-- Event ID 24-26: Clipboard Events - Captura eventos de clipboard -->
+    <ClipboardChange onmatch="include">
+      <!-- Capturar todas as mudanças no clipboard -->
+      <Image condition="contains">.</Image>
+    </ClipboardChange>
+
+  </EventFiltering>
+</Sysmon>
