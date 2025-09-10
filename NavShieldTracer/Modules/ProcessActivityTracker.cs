@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Linq;
 using System.ComponentModel;
+using NavShieldTracer.Modules.Storage;
 
 namespace NavShieldTracer.Modules
 {
@@ -14,7 +15,8 @@ namespace NavShieldTracer.Modules
     {
         private readonly string _targetExecutableName;
         private readonly ConcurrentDictionary<int, string> _monitoredPids = new ConcurrentDictionary<int, string>();
-        private readonly MonitorLogger _logger;
+        private readonly IEventStore _store;
+        private readonly int _sessionId;
         private readonly ConcurrentDictionary<int, DateTime> _processStartTimes = new ConcurrentDictionary<int, DateTime>();
         private int _totalProcessesTracked = 0;
         private readonly ConcurrentBag<TimeSpan> _terminatedProcessLifetimes = new ConcurrentBag<TimeSpan>();
@@ -28,11 +30,13 @@ namespace NavShieldTracer.Modules
         /// Inicializa uma nova instância da classe <see cref="ProcessActivityTracker"/>.
         /// </summary>
         /// <param name="targetExecutableName">O nome do executável alvo a ser monitorado (ex: "chrome.exe").</param>
-        /// <param name="logger">A instância do logger para a sessão de monitoramento.</param>
-        public ProcessActivityTracker(string targetExecutableName, MonitorLogger logger)
+        /// <param name="store">Persistência de eventos.</param>
+        /// <param name="sessionId">Identificador da sessão ativa.</param>
+        public ProcessActivityTracker(string targetExecutableName, IEventStore store, int sessionId)
         {
             _targetExecutableName = targetExecutableName.ToLowerInvariant();
-            _logger = logger;
+            _store = store;
+            _sessionId = sessionId;
         }
 
         /// <summary>
@@ -90,9 +94,9 @@ namespace NavShieldTracer.Modules
             else
             {
                 int? eventPid = GetPidFromEvent(data);
-                if (eventPid.HasValue && _monitoredPids.ContainsKey(eventPid.Value))
+                if (data != null && eventPid.HasValue && _monitoredPids.ContainsKey(eventPid.Value))
                 {
-                    _logger.Log(data);
+                    _store.InsertEvent(_sessionId, data);
                 }
             }
         }
@@ -122,7 +126,7 @@ namespace NavShieldTracer.Modules
                     }
                 }
 
-                _logger.Log(procCreate);
+                _store.InsertEvent(_sessionId, procCreate);
             }
         }
 
@@ -144,7 +148,7 @@ namespace NavShieldTracer.Modules
                     Console.WriteLine($"   -> Processo encerrado: '{procEnd.Imagem}' (PID: {procEnd.ProcessId})");
                 }
                 
-                _logger.Log(procEnd);
+                _store.InsertEvent(_sessionId, procEnd);
             }
         }
 

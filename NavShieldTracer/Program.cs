@@ -3,8 +3,10 @@ using System;
 using System.Threading.Tasks;
 using System.IO;
 using System.Diagnostics.Eventing.Reader;
-using System.Diagnostics; // Adicionado para Process.GetProcesses()
-using System.Linq; // Adicionado para LINQ
+using System.Diagnostics;
+using System.Linq;
+using NavShieldTracer.Modules.Storage;
+using System.Security.Principal;
 
 /// <summary>
 /// Ponto de entrada principal para o aplicativo NavShieldTracer.
@@ -20,33 +22,64 @@ class Program
         Console.WriteLine("NavShieldTracer - Monitoramento de Atividade de Software");
         Console.WriteLine("=======================================================\n");
 
-        bool sysmonInstalado = false;
+        // --- ETAPA 1: INICIALIZAR O BANCO DE DADOS PRIMEIRO ---
+        // Garante que o arquivo de log exista, mesmo que o resto falhe.
+        SqliteEventStore store;
         try
         {
-            var query = new EventLogQuery("Microsoft-Windows-Sysmon/Operational", PathType.LogName);
-            using (var reader = new EventLogReader(query))
-            {
-                sysmonInstalado = true;
-            }
+            store = new SqliteEventStore();
+            Console.WriteLine($"✅ Banco de dados inicializado em: {store.DatabasePath}");
         }
-        catch
+        catch (Exception ex)
         {
-            sysmonInstalado = false;
-        }
-
-        if (!sysmonInstalado)
-        {
-            Console.WriteLine("❌ Sysmon não está instalado ou o log não está acessível.");
-            Console.WriteLine("   Para funcionalidade completa, a instalação do Sysmon é recomendada.");
-            Console.WriteLine("   1. Baixe o Sysmon em https://docs.microsoft.com/sysinternals/downloads/sysmon");
-            Console.WriteLine("   2. Execute como Administrador: sysmon -i -accepteula");
+            Console.WriteLine($"❌ ERRO CRÍTICO: Não foi possível criar ou abrir o banco de dados.");
+            Console.WriteLine($"   Motivo: {ex.Message}");
             Console.WriteLine("\nPressione Enter para sair.");
             Console.ReadLine();
             return;
         }
-        
-        Console.WriteLine("✅ Sysmon detectado. O monitoramento completo está pronto.");
 
+        // --- ETAPA 2: VERIFICAR PERMISSÕES E ACESSO AO SYSMON ---
+        bool temAcessoAdmin = new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
+        bool sysmonAcessivel = false;
+
+        if (!temAcessoAdmin)
+        {
+            Console.WriteLine("⚠️ AVISO: O programa não está sendo executado como Administrador.");
+            Console.WriteLine("   A captura de eventos do Sysmon requer privilégios elevados.");
+        }
+        else
+        {
+            try
+            {
+                // Tenta uma operação que exige privilégios para verificar o acesso.
+                using (var reader = new EventLogReader(new EventLogQuery("Microsoft-Windows-Sysmon/Operational", PathType.LogName)))
+                {
+                    sysmonAcessivel = true;
+                }
+                Console.WriteLine("✅ Privilégios de Administrador detectados e log do Sysmon acessível.");
+            }
+            catch (EventLogNotFoundException)
+            {
+                Console.WriteLine("❌ ERRO: O log 'Microsoft-Windows-Sysmon/Operational' não foi encontrado.");
+                Console.WriteLine("   Verifique se o Sysmon está instalado corretamente.");
+            }
+            catch (Exception ex) // Outras exceções, provavelmente de permissão mesmo com admin
+            {
+                Console.WriteLine($"❌ ERRO: Falha ao acessar o log do Sysmon, mesmo como Administrador.");
+                Console.WriteLine($"   Motivo: {ex.Message}");
+            }
+        }
+
+        if (!sysmonAcessivel)
+        {
+            Console.WriteLine("\nPressione Enter para sair.");
+            Console.ReadLine();
+            store.Dispose(); // Libera o recurso do banco de dados antes de sair
+            return;
+        }
+
+        // --- ETAPA 3: INTERAÇÃO COM O USUÁRIO ---
         Console.WriteLine("\nTop 10 processos por consumo de memória:");
         var topProcesses = Process.GetProcesses()
             .OrderByDescending(p => p.WorkingSet64)
@@ -64,6 +97,7 @@ class Program
         if (string.IsNullOrWhiteSpace(userInput))
         {
             Console.WriteLine("Nome do executável inválido.");
+            store.Dispose();
             return;
         }
 
@@ -85,6 +119,7 @@ class Program
             else
             {
                 Console.WriteLine("\nOperação cancelada.");
+                store.Dispose();
                 return;
             }
         }
@@ -105,36 +140,43 @@ class Program
             else
             {
                 Console.WriteLine("\nOperação cancelada.");
+                store.Dispose();
                 return;
             }
         }
 
-        // Determina um PID raiz para nomear a pasta de log. Usa o primeiro processo encontrado ou 0 se nenhum.
+        // --- ETAPA 4: INICIAR O MONITORAMENTO ---
+        // Determina um PID raiz (pode ser 0) e inicia sessão em SQLite
         int rootPid = matchingProcesses.FirstOrDefault()?.Id ?? 0;
-        var logger = new MonitorLogger(targetExecutable, rootPid);
+        var sessionId = store.BeginSession(new SessionInfo(
+            StartedAt: DateTime.Now,
+            TargetProcess: targetExecutable,
+            RootPid: rootPid,
+            Host: Environment.MachineName,
+            User: Environment.UserName,
+            OsVersion: Environment.OSVersion.ToString()
+        ));
 
-        var tracker = new ProcessActivityTracker(targetExecutable, logger);
-        var monitor = new SysmonEventMonitor(tracker);
-
-        Console.WriteLine($"\n⏳ Aguardando o início de '{targetExecutable}'...");
-        Console.WriteLine("   Execute o software que deseja analisar. O rastreamento começará automaticamente.");
-        
-        monitor.Start();
-
-        Console.WriteLine("\n✅ O monitoramento está ativo.");
-        Console.WriteLine("   Pressione Enter a qualquer momento para parar o monitoramento e salvar os logs.");
-        Console.ReadLine();
-
-        monitor.Stop();
-
-        var monitoredProcesses = tracker.MonitoredProcesses;
-        var resumo = new 
+        using (store)
         {
-            ProcessoAlvo = targetExecutable,
-            TotalProcessosMonitorados = monitoredProcesses.Count,
-            Processos = monitoredProcesses.Select(p => new { PID = p.Key, Imagem = p.Value }).ToList()
-        };
-        logger.SalvarResumo(resumo);
+            var tracker = new ProcessActivityTracker(targetExecutable, store, sessionId);
+            var monitor = new SysmonEventMonitor(tracker);
+
+            Console.WriteLine($"\n⏳ Aguardando atividade de '{targetExecutable}'...");
+            
+            monitor.Start();
+
+            Console.WriteLine("\n✅ O monitoramento está ativo.");
+            Console.WriteLine("   Pressione Enter a qualquer momento para parar o monitoramento e salvar os logs.");
+            Console.ReadLine();
+
+            monitor.Stop();
+
+            var stats = tracker.GetProcessStatistics();
+            store.CompleteSession(sessionId, stats);
+
+            Console.WriteLine("\n✅ Monitoramento finalizado. Resumo salvo no banco de dados.");
+        }
 
         Console.WriteLine("Pressione qualquer tecla para sair.");
         Console.ReadKey();

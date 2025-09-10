@@ -1,6 +1,6 @@
 # NavShieldTracer
 
-[![Version](https://img.shields.io/badge/Version-v1.0.0--Foundation-blue?style=flat-square)](https://github.com/seu-usuario/NavShieldTracer/releases)
+[![Version](https://img.shields.io/badge/Version-v1.0.0--Foundation-blue?style=flat-square)](https://github.com/DouglasOliveiraC/NavShieldTracer/releases)
 [![.NET](https://img.shields.io/badge/.NET-9.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/download/dotnet/9.0)
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?style=flat-square&logo=windows)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
