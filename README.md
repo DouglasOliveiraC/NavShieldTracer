@@ -1,18 +1,18 @@
 # NavShieldTracer
 
-[![Version](https://img.shields.io/badge/Version-v1.0.0--Foundation-blue?style=flat-square)](https://github.com/DouglasOliveiraC/NavShieldTracer/releases)
+[![Version](https://img.shields.io/badge/Version-v1.0.0.1-blue?style=flat-square)](https://github.com/DouglasOliveiraC/NavShieldTracer/releases)
 [![.NET](https://img.shields.io/badge/.NET-9.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/download/dotnet/9.0)
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?style=flat-square&logo=windows)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-**NavShieldTracer** é uma ferramenta avançada de monitoramento de atividade de processos para Windows, projetada para análise de segurança defensiva e investigação forense do comportamento de software.
+**NavShieldTracer** é uma ferramenta de monitoramento de atividade de processos para Windows, projetada para análise de segurança defensiva e investigação forense do comportamento de software.
 
-> **🎯 Versão Atual: v1.0.0-Foundation**  
-> Esta é a primeira versão estável focada em **captura e catalogação precisa** de eventos do sistema. O core de monitoramento está 100% funcional com classificação automática de eventos e logs estruturados.
+> **🎯 Versão Atual: v1.0.0.1**  
+> Esta é a primeira versão estável focada em **captura e persistência estruturada** de eventos do sistema. O core de monitoramento está 100% funcional com base de dados SQLite, filtragem inteligente e arquitetura preparada para análise comportamental.
 
 ## 📋 Visão Geral
 
-NavShieldTracer utiliza o **Sysmon (System Monitor)** para capturar e registrar atividades detalhadas do sistema de processos alvo, fornecendo visibilidade completa sobre:
+NavShieldTracer utiliza o **Sysmon (System Monitor)** para capturar eventos do sistema e armazená-los em uma **base de dados SQLite estruturada**, fornecendo visibilidade completa sobre:
 
 - 🔄 Criação e encerramento de processos
 - 🌐 Conexões de rede e consultas DNS
@@ -22,16 +22,17 @@ NavShieldTracer utiliza o **Sysmon (System Monitor)** para capturar e registrar 
 - 📚 Carregamento de DLLs e drivers
 - 🔗 Pipes nomeados e streams NTFS
 
-## 🚀 Estado Atual - v1.0.0-Foundation
+## 🚀 Estado Atual - v1.0.0.1
 
 ### ✅ **Funcionalidades Implementadas**
 
 **Core de Monitoramento:**
 - ✅ **Captura de 18+ tipos de eventos** do Sysmon (Event IDs 1-26)
-- ✅ **Classificação automática** de eventos por tipo em pastas organizadas
+- ✅ **Base de dados SQLite** com schema otimizado e índices estratégicos
 - ✅ **Rastreamento de árvore de processos** pai-filho com filtragem inteligente
-- ✅ **Logs estruturados em JSON** com metadados completos
+- ✅ **Persistência estruturada** com campos normalizados e JSON raw
 - ✅ **Diagnóstico automático** da configuração do Sysmon
+- ✅ **Arquitetura modular** preparada para motor heurístico e exibição de dashboard
 
 **Eventos Validados:**
 - ✅ **Network Connections** (Event ID 3) - Conexões TCP/UDP com hostnames
@@ -40,10 +41,10 @@ NavShieldTracer utiliza o **Sysmon (System Monitor)** para capturar e registrar 
 - ✅ **Process Termination** (Event ID 5) - Encerramento de processos
 
 **Infraestrutura:**
-- ✅ **TesteSoftware** - Suite de testes que simula 5 comportamentos suspeitos
-- ✅ **Configuração Sysmon otimizada** - XML para captura máxima de eventos
+- ✅ **TesteSoftware** - Suite modular integrada com Red Canary Atomic Red Team
+- ✅ **SQLite WAL Mode** - Performance otimizada com transações seguras
 - ✅ **Script de automação** - Execução facilitada de testes
-- ✅ **Documentação completa** - Guias técnicos e de uso
+- ✅ **Documentação completa** - Guias técnicos, apresentação TCC e arquitetura
 
 ### 🔄 **Em Progresso** 
 - **Eventos adicionais** dependem de configuração Sysmon específica:
@@ -52,9 +53,9 @@ NavShieldTracer utiliza o **Sysmon (System Monitor)** para capturar e registrar 
   - Advanced Process Events (Event IDs 6-10)
 
 ### 🎯 **Próximas Versões**
-- **v1.1-Enhanced**: Heurísticas de análise comportamental
-- **v1.2-Analytics**: Dashboard e relatórios automatizados
-- **v2.0-Intelligence**: Machine learning para detecção de anomalias
+- **Módulo 2 - Motor Heurístico**: Engine de análise comportamental e detecção de anomalias
+- **Módulo 3 - Web Dashboard**: Interface gráfica moderna para visualização em tempo real
+- **Módulo 4 - Integração Avançada**: Conectores SIEM, APIs REST e threat intelligence
 
 ## 🛠️ Requisitos do Sistema
 
@@ -62,6 +63,7 @@ NavShieldTracer utiliza o **Sysmon (System Monitor)** para capturar e registrar 
 - **.NET 9 Runtime**
 - **Privilégios de Administrador** (obrigatório)
 - **Sysmon instalado e configurado**
+- **SQLite** (incluído via Microsoft.Data.Sqlite)
 
 ## 🚀 Instalação Rápida
 
@@ -101,60 +103,98 @@ dotnet run --project NavShieldTracer/NavShieldTracer.csproj
 ```bash
 # Execute o script de teste automatizado
 executar_teste.bat
+
+# Ou use o script PowerShell
+.\Executar-TesteAtomico.ps1
 ```
 
-## 📊 Estrutura de Logs
+## 📊 Estrutura de Dados
 
-Os logs são organizados em `Logs/{timestamp}_{processo}_{pid}/`:
+### Base de Dados SQLite
+Os eventos são armazenados em `Logs/navshieldtracer.sqlite` com:
 
+```sql
+-- Tabela de Sessões
+CREATE TABLE sessions (
+    id INTEGER PRIMARY KEY,
+    started_at TEXT,
+    target_process TEXT,
+    root_pid INTEGER,
+    host TEXT,
+    notes TEXT
+);
+
+-- Tabela de Eventos (schema normalizado)
+CREATE TABLE events (
+    id INTEGER PRIMARY KEY,
+    session_id INTEGER,
+    event_id INTEGER,
+    process_id INTEGER,
+    image TEXT,
+    command_line TEXT,
+    src_ip TEXT, dst_ip TEXT,
+    dns_query TEXT,
+    target_filename TEXT,
+    raw_json TEXT  -- JSON completo para troubleshooting
+);
 ```
-Logs/20250731_160016_teste_46580/
-├── metadata_sessao.json           # Informações da sessão
-├── resumo_monitoramento.json      # Resumo dos processos
-├── estatisticas_eventos.json      # Contagem de eventos
-├── ProcessosCriados/              # Event ID 1
-├── ConexoesRede/                  # Event ID 3
-├── ArquivosCriados/              # Event ID 11
-├── ConsultasDns/                 # Event ID 22
-├── AcessosRegistro/              # Event IDs 12-14
-└── [outros tipos de evento...]
+
+### Consultas Úteis
+```sql
+-- Top 10 processos por eventos
+SELECT image, COUNT(*) as eventos 
+FROM events GROUP BY image ORDER BY eventos DESC LIMIT 10;
+
+-- Conexões de rede por sessão
+SELECT dst_ip, dst_port, COUNT(*) as conexoes
+FROM events WHERE event_id = 3 GROUP BY dst_ip, dst_port;
 ```
 
 ## 🧪 Software de Teste
 
-O projeto inclui um **TesteSoftware** que simula comportamentos típicos para validação:
+O projeto inclui um **TesteSoftware** modular que integra com **Red Canary Atomic Red Team** para simulação de comportamentos adversariais:
 
-1. **Fase Inerte**: 30 segundos de espera
-2. **Atividades de Teste**:
-   - Criação de arquivo na área de trabalho
-   - Operações de registro
-   - Conexão HTTP externa
-   - Criação de processo filho (Notepad)
-   - Operações suspeitas (modificação de timestamps)
+### **Características do TesteSoftware**
+- **🔄 Execução Modular**: Seleção individual ou sequencial de testes disponíveis
+- **🎯 Integração Red Canary**: Utiliza testes padronizados da comunidade de segurança
+- **📊 Validação Comportamental**: Simula TTPs (Tactics, Techniques, Procedures) reais
+- **⚙️ Configurável**: Permite ajuste de parâmetros e cenários de teste
 
-## 🔧 Configuração Avançada
+### **Modo de Operação**
+1. **Detecção Automática**: Identifica testes Red Canary instalados no sistema
+2. **Seleção Interativa**: Interface para escolha de testes específicos ou execução completa
+3. **Execução Controlada**: Ambiente isolado com logging detalhado
+4. **Validação de Captura**: Verifica se o NavShieldTracer detectou corretamente os eventos
 
-### Sysmon Personalizado
-Edite `sysmon-config-completa.xml` para ajustar quais eventos capturar:
+### **Testes Suportados** (em desenvolvimento)
 
-```xml
-<!-- Exemplo: Capturar apenas arquivos .exe -->
-<FileCreate onmatch="include">
-    <TargetFilename condition="end with">.exe</TargetFilename>
-</FileCreate>
 ```
 
-### Diagnóstico Automático
-O NavShieldTracer inclui diagnóstico automático que:
-- Analisa configuração atual do Sysmon
-- Identifica Event IDs disponíveis
-- Sugere melhorias na configuração
+**📝 Nota**: O TesteSoftware está em **desenvolvimento ativo** e será aperfeiçoado continuamente com novos testes e funcionalidades de integração com Red Canary Atomic Red Team.
+
+
+### Arquitetura do Sistema
+O NavShieldTracer possui arquitetura modular em camadas:
+
+**Camada de Captura:**
+- SysmonEventMonitor - Captura eventos em tempo real
+- ProcessActivityTracker - Filtragem inteligente por árvore de processos
+- SqliteEventStore - Persistência estruturada
+
+**Camada de Análise (Futuro):**
+- Motor Heurístico - Análise comportamental
+- Detecção de Anomalias - Risk assessment
+- Alertas em Tempo Real - Threat intelligence
+
+**Camada de Apresentação (Futuro):**
+- Web Dashboard - Interface gráfica moderna
+- Timeline Interativa - Visualização temporal
+- Relatórios Automatizados - Export capabilities
 
 ## 📚 Documentação
 
-- [`TESTE_GUIA.md`](TESTE_GUIA.md) - Guia completo de teste
-- [`MELHORIAS_SYSMON.md`](MELHORIAS_SYSMON.md) - Melhorias implementadas
-- [`docs/`](docs/) - Documentação técnica detalhada
+- [`APRESENTACAO_TCC.md`](APRESENTACAO_TCC.md) - Apresentação completa do projeto
+- [`APRESENTACAO_TCC.tex`](APRESENTACAO_TCC.tex) - Versão LaTeX para apresentação
 
 ## 🛡️ Uso Responsável
 
@@ -164,29 +204,30 @@ O NavShieldTracer inclui diagnóstico automático que:
 - ✅ Análise de malware em sandbox
 - ✅ Auditoria de atividade de software
 
-**NÃO use para**:
-- ❌ Monitoramento não autorizado
-- ❌ Violação de privacidade
-- ❌ Atividades maliciosas
-
-## 🤝 Contribuindo
-
-1. Fork o projeto
-2. Crie uma branch para sua feature (`git checkout -b feature/nova-funcionalidade`)
-3. Commit suas mudanças (`git commit -m 'Adiciona nova funcionalidade'`)
-4. Push para a branch (`git push origin feature/nova-funcionalidade`)
-5. Abra um Pull Request
-
-## 📝 Licença
-
-Este projeto está licenciado sob a Licença MIT - veja o arquivo [LICENSE](LICENSE) para detalhes.
-
-## 🙏 Agradecimentos
-
-- [Microsoft Sysinternals](https://docs.microsoft.com/sysinternals/) pelo Sysmon
-- Comunidade de segurança cibernética por recursos e documentação
-- Pesquisadores de segurança por padrões e boas práticas
-
 ---
 
-**⚠️ Aviso**: Execute sempre como Administrador e em ambiente controlado. Monitore o espaço em disco, pois a ferramenta pode gerar grandes volumes de logs.
+## 🏗️ **Arquitetura Técnica**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Camada de Apresentação                   │
+│              🌐 Web Dashboard (Futuro)                     │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+┌─────────────────────┴───────────────────────────────────────┐
+│                    Camada de Análise                        │
+│  🧠 Motor Heurístico → 📈 Anomalias → ⚡ Alertas (Futuro)  │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+┌─────────────────────┴───────────────────────────────────────┐
+│                    Camada de Captura                        │
+│   🔍 SysmonMonitor → 📊 ProcessTracker → 💾 SqliteStore    │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+┌─────────────────────┴───────────────────────────────────────┐
+│                    Camada de Dados                          │
+│        📋 ModelosEventos ↔ 💾 SQLite Database               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**⚠️ Aviso**: Execute sempre como Administrador e em ambiente controlado. A base de dados SQLite cresce conforme a atividade do sistema monitorado.
