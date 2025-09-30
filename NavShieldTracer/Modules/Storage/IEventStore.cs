@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace NavShieldTracer.Modules.Storage
 {
@@ -50,6 +51,59 @@ namespace NavShieldTracer.Modules.Storage
         /// Caminho do banco de dados
         /// </summary>
         string DatabasePath { get; }
+
+        // === MÉTODOS PARA TESTES ATÔMICOS ===
+
+        /// <summary>
+        /// Inicia catalogação de um novo teste atômico
+        /// </summary>
+        /// <param name="novoTeste">Dados do teste a catalogar</param>
+        /// <param name="sessionId">ID da sessão associada</param>
+        /// <returns>ID do teste criado</returns>
+        int IniciarTesteAtomico(NovoTesteAtomico novoTeste, int sessionId);
+
+        /// <summary>
+        /// Finaliza catalogação de um teste atômico
+        /// </summary>
+        /// <param name="testeId">ID do teste</param>
+        /// <param name="totalEventos">Total de eventos capturados</param>
+        void FinalizarTesteAtomico(int testeId, int totalEventos);
+
+        /// <summary>
+        /// Lista todos os testes atômicos catalogados
+        /// </summary>
+        /// <returns>Lista de testes catalogados</returns>
+        List<TesteAtomico> ListarTestesAtomicos();
+
+        /// <summary>
+        /// Obtém resumo estatístico de um teste específico
+        /// </summary>
+        /// <param name="testeId">ID do teste</param>
+        /// <returns>Resumo do teste ou null se não encontrado</returns>
+        ResumoTesteAtomico? ObterResumoTeste(int testeId);
+
+        /// <summary>
+        /// Exporta eventos de um teste específico
+        /// </summary>
+        /// <param name="testeId">ID do teste</param>
+        /// <returns>Lista de eventos do teste</returns>
+        List<object> ExportarEventosTeste(int testeId);
+
+        /// <summary>
+        /// Atualiza informações de um teste catalogado
+        /// </summary>
+        /// <param name="testeId">ID do teste</param>
+        /// <param name="numero">Novo número da técnica (opcional)</param>
+        /// <param name="nome">Novo nome (opcional)</param>
+        /// <param name="descricao">Nova descrição (opcional)</param>
+        void AtualizarTesteAtomico(int testeId, string? numero = null, string? nome = null, string? descricao = null);
+
+        /// <summary>
+        /// Exclui um teste catalogado e seus eventos associados
+        /// </summary>
+        /// <param name="testeId">ID do teste a excluir</param>
+        /// <returns>True se excluído com sucesso</returns>
+        bool ExcluirTesteAtomico(int testeId);
     }
 }
 

@@ -35,3 +35,24 @@ _site/
 # Pastas desnecessárias  
 packages/
 TestResults/
+
+# Arquivos de documentação (exceto README.md)
+*.md
+!README.md
+!CLAUDE.md
+
+# Arquivos LaTeX
+*.tex
+*.aux
+*.pdf
+
+# Scripts locais
+*.ps1
+*.bat
+test-build.py
+
+# Análises e documentação local
+analise_*.md
+planejamento_*.md
+DIAGNOSTICO_*.md
+APRESENTACAO_*.*

@@ -2,6 +2,8 @@ using System;
 using System.Data;
 using System.IO;
 using System.Text.Json;
+using System.Collections.Generic;
+using System.Linq;
 using Microsoft.Data.Sqlite;
 using NavShieldTracer.Modules;
 
@@ -141,6 +143,23 @@ namespace NavShieldTracer.Modules.Storage
             CREATE INDEX IF NOT EXISTS idx_events_dst ON events(dst_ip, dst_port);
             CREATE INDEX IF NOT EXISTS idx_events_dns ON events(dns_query);
             CREATE INDEX IF NOT EXISTS idx_events_target ON events(target_filename);
+
+            CREATE TABLE IF NOT EXISTS atomic_tests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                numero TEXT NOT NULL,
+                nome TEXT NOT NULL,
+                descricao TEXT,
+                data_execucao TEXT NOT NULL,
+                session_id INTEGER NOT NULL,
+                total_eventos INTEGER DEFAULT 0,
+                finalizado BOOLEAN DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_atomic_tests_numero ON atomic_tests(numero);
+            CREATE INDEX IF NOT EXISTS idx_atomic_tests_data ON atomic_tests(data_execucao);
+            CREATE INDEX IF NOT EXISTS idx_atomic_tests_session ON atomic_tests(session_id);
             ";
             cmd.ExecuteNonQuery();
             tx.Commit();
@@ -359,6 +378,299 @@ namespace NavShieldTracer.Modules.Storage
             }
         }
 
+        // === IMPLEMENTAÇÃO DOS MÉTODOS PARA TESTES ATÔMICOS ===
+
+        /// <summary>
+        /// Inicia catalogação de um novo teste atômico
+        /// </summary>
+        /// <param name="novoTeste">Dados do teste a catalogar</param>
+        /// <param name="sessionId">ID da sessão associada</param>
+        /// <returns>ID do teste criado</returns>
+        public int IniciarTesteAtomico(NovoTesteAtomico novoTeste, int sessionId)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                INSERT INTO atomic_tests (numero, nome, descricao, data_execucao, session_id)
+                VALUES ($numero, $nome, $descricao, $data_execucao, $session_id);
+                SELECT last_insert_rowid();
+            ";
+            cmd.Parameters.AddWithValue("$numero", novoTeste.Numero);
+            cmd.Parameters.AddWithValue("$nome", novoTeste.Nome);
+            cmd.Parameters.AddWithValue("$descricao", novoTeste.Descricao);
+            cmd.Parameters.AddWithValue("$data_execucao", DateTime.Now.ToString("o"));
+            cmd.Parameters.AddWithValue("$session_id", sessionId);
+
+            return Convert.ToInt32(cmd.ExecuteScalar());
+        }
+
+        /// <summary>
+        /// Finaliza catalogação de um teste atômico
+        /// </summary>
+        /// <param name="testeId">ID do teste</param>
+        /// <param name="totalEventos">Total de eventos capturados</param>
+        public void FinalizarTesteAtomico(int testeId, int totalEventos)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                UPDATE atomic_tests
+                SET total_eventos = $total_eventos, finalizado = 1
+                WHERE id = $id;
+            ";
+            cmd.Parameters.AddWithValue("$total_eventos", totalEventos);
+            cmd.Parameters.AddWithValue("$id", testeId);
+            cmd.ExecuteNonQuery();
+        }
+
+        /// <summary>
+        /// Lista todos os testes atômicos catalogados
+        /// </summary>
+        /// <returns>Lista de testes catalogados</returns>
+        public List<TesteAtomico> ListarTestesAtomicos()
+        {
+            var testes = new List<TesteAtomico>();
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT id, numero, nome, descricao, data_execucao, session_id, total_eventos
+                FROM atomic_tests
+                WHERE finalizado = 1
+                ORDER BY data_execucao DESC;
+            ";
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                testes.Add(new TesteAtomico(
+                    Id: reader.GetInt32("id"),
+                    Numero: reader.GetString("numero"),
+                    Nome: reader.GetString("nome"),
+                    Descricao: reader.IsDBNull("descricao") ? "" : reader.GetString("descricao"),
+                    DataExecucao: DateTime.Parse(reader.GetString("data_execucao")),
+                    SessionId: reader.GetInt32("session_id"),
+                    TotalEventos: reader.GetInt32("total_eventos")
+                ));
+            }
+
+            return testes;
+        }
+
+        /// <summary>
+        /// Obtém resumo estatístico de um teste específico
+        /// </summary>
+        /// <param name="testeId">ID do teste</param>
+        /// <returns>Resumo do teste ou null se não encontrado</returns>
+        public ResumoTesteAtomico? ObterResumoTeste(int testeId)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT t.id, t.numero, t.nome, t.data_execucao, t.session_id, t.total_eventos,
+                       s.started_at, s.ended_at
+                FROM atomic_tests t
+                LEFT JOIN sessions s ON t.session_id = s.id
+                WHERE t.id = $id AND t.finalizado = 1;
+            ";
+            cmd.Parameters.AddWithValue("$id", testeId);
+
+            using var reader = cmd.ExecuteReader();
+            if (!reader.Read()) return null;
+
+            var dataExecucao = DateTime.Parse(reader.GetString("data_execucao"));
+            var iniciado = reader.IsDBNull("started_at") ? dataExecucao : DateTime.Parse(reader.GetString("started_at"));
+            var finalizado = reader.IsDBNull("ended_at") ? dataExecucao : DateTime.Parse(reader.GetString("ended_at"));
+            var duracao = (finalizado - iniciado).TotalSeconds;
+
+            var eventosPorTipo = new Dictionary<int, int>();
+
+            // Segunda consulta para contar eventos por tipo
+            using var cmd2 = _conn.CreateCommand();
+            cmd2.CommandText = @"
+                SELECT event_id, COUNT(*) as count
+                FROM events
+                WHERE session_id = $session_id
+                GROUP BY event_id;
+            ";
+            cmd2.Parameters.AddWithValue("$session_id", reader.GetInt32("session_id"));
+
+            using var reader2 = cmd2.ExecuteReader();
+            while (reader2.Read())
+            {
+                var eventId = reader2.IsDBNull("event_id") ? 0 : reader2.GetInt32("event_id");
+                var count = reader2.GetInt32("count");
+                eventosPorTipo[eventId] = count;
+            }
+
+            return new ResumoTesteAtomico(
+                TesteId: reader.GetInt32("id"),
+                Numero: reader.GetString("numero"),
+                Nome: reader.GetString("nome"),
+                DataExecucao: dataExecucao,
+                DuracaoSegundos: duracao,
+                TotalEventos: reader.GetInt32("total_eventos"),
+                EventosPorTipo: eventosPorTipo
+            );
+        }
+
+        /// <summary>
+        /// Exporta eventos de um teste específico
+        /// </summary>
+        /// <param name="testeId">ID do teste</param>
+        /// <returns>Lista de eventos do teste</returns>
+        public List<object> ExportarEventosTeste(int testeId)
+        {
+            var eventos = new List<object>();
+
+            // Primeiro busca o session_id do teste
+            using var cmd1 = _conn.CreateCommand();
+            cmd1.CommandText = "SELECT session_id FROM atomic_tests WHERE id = $id;";
+            cmd1.Parameters.AddWithValue("$id", testeId);
+            var sessionId = cmd1.ExecuteScalar();
+
+            if (sessionId == null) return eventos;
+
+            // Busca todos os eventos da sessão
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT event_id, utc_time, capture_time, process_id, image, command_line,
+                       src_ip, dst_ip, dst_port, target_filename, raw_json
+                FROM events
+                WHERE session_id = $session_id
+                ORDER BY utc_time;
+            ";
+            cmd.Parameters.AddWithValue("$session_id", sessionId);
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var evento = new
+                {
+                    EventId = reader.IsDBNull("event_id") ? 0 : reader.GetInt32("event_id"),
+                    UtcTime = reader.IsDBNull("utc_time") ? "" : reader.GetString("utc_time"),
+                    CaptureTime = reader.IsDBNull("capture_time") ? "" : reader.GetString("capture_time"),
+                    ProcessId = reader.IsDBNull("process_id") ? (int?)null : reader.GetInt32("process_id"),
+                    Image = reader.IsDBNull("image") ? "" : reader.GetString("image"),
+                    CommandLine = reader.IsDBNull("command_line") ? "" : reader.GetString("command_line"),
+                    SrcIp = reader.IsDBNull("src_ip") ? "" : reader.GetString("src_ip"),
+                    DstIp = reader.IsDBNull("dst_ip") ? "" : reader.GetString("dst_ip"),
+                    DstPort = reader.IsDBNull("dst_port") ? (int?)null : reader.GetInt32("dst_port"),
+                    TargetFilename = reader.IsDBNull("target_filename") ? "" : reader.GetString("target_filename"),
+                    RawJson = reader.IsDBNull("raw_json") ? "" : reader.GetString("raw_json")
+                };
+                eventos.Add(evento);
+            }
+
+            return eventos;
+        }
+
+        /// <summary>
+        /// Conta o número total de eventos em uma sessão específica
+        /// </summary>
+        /// <param name="sessionId">ID da sessão</param>
+        /// <returns>Número total de eventos</returns>
+        public int ContarEventosSessao(int sessionId)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM events WHERE session_id = $session_id;";
+            cmd.Parameters.AddWithValue("$session_id", sessionId);
+            return Convert.ToInt32(cmd.ExecuteScalar());
+        }
+
+        /// <summary>
+        /// Atualiza informações de um teste catalogado
+        /// </summary>
+        /// <param name="testeId">ID do teste</param>
+        /// <param name="numero">Novo número da técnica (opcional)</param>
+        /// <param name="nome">Novo nome (opcional)</param>
+        /// <param name="descricao">Nova descrição (opcional)</param>
+        public void AtualizarTesteAtomico(int testeId, string? numero = null, string? nome = null, string? descricao = null)
+        {
+            var updates = new List<string>();
+            using var cmd = _conn.CreateCommand();
+
+            if (!string.IsNullOrWhiteSpace(numero))
+            {
+                updates.Add("numero = $numero");
+                cmd.Parameters.AddWithValue("$numero", numero);
+            }
+
+            if (!string.IsNullOrWhiteSpace(nome))
+            {
+                updates.Add("nome = $nome");
+                cmd.Parameters.AddWithValue("$nome", nome);
+            }
+
+            if (descricao != null) // Permite limpar descrição com string vazia
+            {
+                updates.Add("descricao = $descricao");
+                cmd.Parameters.AddWithValue("$descricao", descricao);
+            }
+
+            if (updates.Count == 0)
+            {
+                return; // Nada para atualizar
+            }
+
+            cmd.CommandText = $@"
+                UPDATE atomic_tests
+                SET {string.Join(", ", updates)}
+                WHERE id = $id;
+            ";
+            cmd.Parameters.AddWithValue("$id", testeId);
+            cmd.ExecuteNonQuery();
+        }
+
+        /// <summary>
+        /// Exclui um teste catalogado e seus eventos associados
+        /// </summary>
+        /// <param name="testeId">ID do teste a excluir</param>
+        /// <returns>True se excluído com sucesso</returns>
+        public bool ExcluirTesteAtomico(int testeId)
+        {
+            using var tx = _conn.BeginTransaction();
+            try
+            {
+                // Obter session_id do teste
+                using var cmdGetSession = _conn.CreateCommand();
+                cmdGetSession.Transaction = tx;
+                cmdGetSession.CommandText = "SELECT session_id FROM atomic_tests WHERE id = $id;";
+                cmdGetSession.Parameters.AddWithValue("$id", testeId);
+                var sessionId = cmdGetSession.ExecuteScalar();
+
+                if (sessionId == null)
+                {
+                    tx.Rollback();
+                    return false; // Teste não encontrado
+                }
+
+                // Excluir eventos da sessão (CASCADE deve fazer isso automaticamente, mas garantimos)
+                using var cmdDelEvents = _conn.CreateCommand();
+                cmdDelEvents.Transaction = tx;
+                cmdDelEvents.CommandText = "DELETE FROM events WHERE session_id = $session_id;";
+                cmdDelEvents.Parameters.AddWithValue("$session_id", sessionId);
+                cmdDelEvents.ExecuteNonQuery();
+
+                // Excluir teste atômico
+                using var cmdDelTest = _conn.CreateCommand();
+                cmdDelTest.Transaction = tx;
+                cmdDelTest.CommandText = "DELETE FROM atomic_tests WHERE id = $id;";
+                cmdDelTest.Parameters.AddWithValue("$id", testeId);
+                cmdDelTest.ExecuteNonQuery();
+
+                // Excluir sessão
+                using var cmdDelSession = _conn.CreateCommand();
+                cmdDelSession.Transaction = tx;
+                cmdDelSession.CommandText = "DELETE FROM sessions WHERE id = $session_id;";
+                cmdDelSession.Parameters.AddWithValue("$session_id", sessionId);
+                cmdDelSession.ExecuteNonQuery();
+
+                tx.Commit();
+                return true;
+            }
+            catch
+            {
+                tx.Rollback();
+                throw;
+            }
+        }
+
         /// <summary>
         /// Libera os recursos utilizados pelo armazenamento
         /// </summary>
@@ -370,3 +682,4 @@ namespace NavShieldTracer.Modules.Storage
         }
     }
 }
+
