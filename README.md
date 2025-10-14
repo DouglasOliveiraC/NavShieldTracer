@@ -99,6 +99,9 @@ dotnet run --project NavShieldTracer/NavShieldTracer.csproj
 # Pressione Enter para finalizar o monitoramento
 ```
 
+> ℹ️ **Diagnóstico automático**: na inicialização o NavShieldTracer verifica privilégios elevados,
+> o serviço/canal do Sysmon e sugere correções antes de continuar. Certifique-se de seguir as recomendações exibidas no console.
+
 ### Teste Automatizado
 ```bash
 # Execute o script de teste automatizado
@@ -106,6 +109,12 @@ executar_teste.bat
 
 # Ou use o script PowerShell
 .\Executar-TesteAtomico.ps1
+
+# Novo: modo PowerShell externo (Monitorar powershell.exe)
+# Dentro do TesteSoftware, escolha a opcao 3 e responda "S" quando solicitado
+# para abrir um novo processo PowerShell dedicado ao Invoke-AtomicTest.
+# Assim o NavShieldTracer pode ser configurado para monitorar powershell.exe,
+# seguindo o manual do Red Team para testes atomicos.
 ```
 
 ## 📊 Estrutura de Dados
@@ -205,29 +214,5 @@ O NavShieldTracer possui arquitetura modular em camadas:
 - ✅ Auditoria de atividade de software
 
 ---
-
-## 🏗️ **Arquitetura Técnica**
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Camada de Apresentação                   │
-│              🌐 Web Dashboard (Futuro)                     │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-┌─────────────────────┴───────────────────────────────────────┐
-│                    Camada de Análise                        │
-│  🧠 Motor Heurístico → 📈 Anomalias → ⚡ Alertas (Futuro)  │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-┌─────────────────────┴───────────────────────────────────────┐
-│                    Camada de Captura                        │
-│   🔍 SysmonMonitor → 📊 ProcessTracker → 💾 SqliteStore    │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-┌─────────────────────┴───────────────────────────────────────┐
-│                    Camada de Dados                          │
-│        📋 ModelosEventos ↔ 💾 SQLite Database               │
-└─────────────────────────────────────────────────────────────┘
-```
 
 **⚠️ Aviso**: Execute sempre como Administrador e em ambiente controlado. A base de dados SQLite cresce conforme a atividade do sistema monitorado.

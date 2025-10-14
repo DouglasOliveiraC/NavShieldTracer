@@ -2,12 +2,10 @@ using NavShieldTracer.Modules;
 using System;
 using System.Threading.Tasks;
 using System.IO;
-using System.Diagnostics.Eventing.Reader;
 using System.Diagnostics;
 using System.Linq;
 using System.Text.Json;
 using NavShieldTracer.Modules.Storage;
-using System.Security.Principal;
 
 /// <summary>
 /// Ponto de entrada principal para o aplicativo NavShieldTracer.
@@ -15,6 +13,8 @@ using System.Security.Principal;
 /// </summary>
 class Program
 {
+    private static string _sysmonLogName = SysmonEventMonitor.DefaultLogName;
+
     /// <summary>
     /// O método principal do aplicativo.
     /// </summary>
@@ -41,44 +41,36 @@ class Program
         }
 
         // --- ETAPA 2: VERIFICAR PERMISSÕES E ACESSO AO SYSMON ---
-        bool temAcessoAdmin = new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
-        bool sysmonAcessivel = false;
+        Console.WriteLine("\n🔍 Verificando ambiente do Sysmon...");
+        var sysmonStatus = SysmonDiagnostics.GatherStatus();
+        _sysmonLogName = sysmonStatus.LogName ?? SysmonEventMonitor.DefaultLogName;
 
-        if (!temAcessoAdmin)
+        ExibirDiagnosticoSysmon(sysmonStatus);
+
+        if (!sysmonStatus.IsReady)
         {
-            Console.WriteLine("⚠️ AVISO: O programa não está sendo executado como Administrador.");
-            Console.WriteLine("   A captura de eventos do Sysmon requer privilégios elevados.");
-        }
-        else
-        {
-            try
+            Console.WriteLine("\n❌ Sysmon não está pronto para captura. Corrija os itens acima e tente novamente.");
+            if (!string.IsNullOrWhiteSpace(sysmonStatus.AccessError))
             {
-                // Tenta uma operação que exige privilégios para verificar o acesso.
-                using (var reader = new EventLogReader(new EventLogQuery("Microsoft-Windows-Sysmon/Operational", PathType.LogName)))
+                Console.WriteLine($"   Detalhes: {sysmonStatus.AccessError}");
+            }
+
+            if (sysmonStatus.Recommendations.Count > 0)
+            {
+                Console.WriteLine("\nSugestões:");
+                foreach (var recomendacao in sysmonStatus.Recommendations.Distinct(StringComparer.OrdinalIgnoreCase))
                 {
-                    sysmonAcessivel = true;
+                    Console.WriteLine($"   - {recomendacao}");
                 }
-                Console.WriteLine("✅ Privilégios de Administrador detectados e log do Sysmon acessível.");
             }
-            catch (EventLogNotFoundException)
-            {
-                Console.WriteLine("❌ ERRO: O log 'Microsoft-Windows-Sysmon/Operational' não foi encontrado.");
-                Console.WriteLine("   Verifique se o Sysmon está instalado corretamente.");
-            }
-            catch (Exception ex) // Outras exceções, provavelmente de permissão mesmo com admin
-            {
-                Console.WriteLine($"❌ ERRO: Falha ao acessar o log do Sysmon, mesmo como Administrador.");
-                Console.WriteLine($"   Motivo: {ex.Message}");
-            }
-        }
 
-        if (!sysmonAcessivel)
-        {
             Console.WriteLine("\nPressione Enter para sair.");
             Console.ReadLine();
-            store.Dispose(); // Libera o recurso do banco de dados antes de sair
+            store.Dispose();
             return;
         }
+
+        Console.WriteLine($"\n✅ Sysmon disponível. Canal em uso: {_sysmonLogName}");
 
         // --- ETAPA 3: MENU PRINCIPAL ---
         using (store)
@@ -171,6 +163,31 @@ class Program
     }
 
     /// <summary>
+    /// Exibe o diagnóstico detalhado do ambiente Sysmon.
+    /// </summary>
+    /// <param name="status">Status coletado pelo <see cref="SysmonDiagnostics"/>.</param>
+    private static void ExibirDiagnosticoSysmon(SysmonStatus status)
+    {
+        Console.WriteLine($"   • Executando como administrador: {(status.IsAdministrator ? "Sim" : "Não")}");
+        Console.WriteLine($"   • Serviço Sysmon detectado: {(status.ServiceFound ? (status.ServiceName ?? "(desconhecido)") : "Não")}");
+        if (status.ServiceFound)
+        {
+            Console.WriteLine($"     - Serviço em execução: {(status.ServiceRunning ? "Sim" : "Não")}");
+        }
+
+        Console.WriteLine($"   • Canal de eventos disponível: {(status.LogExists ? status.LogName ?? "(desconhecido)" : "Não localizado")}");
+        if (status.LogExists)
+        {
+            Console.WriteLine($"     - Leitura autorizada: {(status.HasAccess ? "Sim" : "Não")}");
+        }
+
+        if (!status.IsReady && status.AccessError is not null)
+        {
+            Console.WriteLine($"   • Observação: {status.AccessError}");
+        }
+    }
+
+    /// <summary>
     /// Executa monitoramento de processo tradicional
     /// </summary>
     /// <param name="store">Store de eventos</param>
@@ -258,7 +275,7 @@ class Program
         ));
 
         var tracker = new ProcessActivityTracker(targetExecutable, store, sessionId);
-        var monitor = new SysmonEventMonitor(tracker);
+        var monitor = new SysmonEventMonitor(tracker, _sysmonLogName);
 
         Console.WriteLine($"\n⏳ Aguardando atividade de '{targetExecutable}'...");
 
@@ -329,7 +346,7 @@ class Program
         Console.WriteLine("\n🔄 Iniciando monitoramento para catalogação...");
 
         var tracker = new ProcessActivityTracker("teste.exe", store, sessionId);
-        var monitor = new SysmonEventMonitor(tracker);
+        var monitor = new SysmonEventMonitor(tracker, _sysmonLogName);
 
         monitor.Start();
 
@@ -571,11 +588,11 @@ class Program
         try
         {
             store.AtualizarTesteAtomico(teste.Id, novoNumero, novoNome, novaDescricao);
-            Console.WriteLine("\n✅ Teste atualizado com sucesso!");
+            Console.WriteLine("\n Teste atualizado com sucesso!");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"\n❌ Erro ao atualizar teste: {ex.Message}");
+            Console.WriteLine($"\n Erro ao atualizar teste: {ex.Message}");
         }
     }
 
@@ -584,7 +601,7 @@ class Program
     /// </summary>
     static void ExcluirTeste(SqliteEventStore store, TesteAtomico teste)
     {
-        Console.WriteLine("\n⚠️  ATENÇÃO: Esta ação não pode ser desfeita!");
+        Console.WriteLine("\n  ATENÇÃO: Esta ação não pode ser desfeita!");
         Console.WriteLine($"Você está prestes a excluir:");
         Console.WriteLine($"  - Teste: {teste.Numero} - {teste.Nome}");
         Console.WriteLine($"  - {teste.TotalEventos} eventos capturados");
@@ -595,7 +612,7 @@ class Program
 
         if (confirmacao != "EXCLUIR")
         {
-            Console.WriteLine("\n❌ Exclusão cancelada.");
+            Console.WriteLine("\n Exclusão cancelada.");
             return;
         }
 
@@ -604,16 +621,16 @@ class Program
             bool sucesso = store.ExcluirTesteAtomico(teste.Id);
             if (sucesso)
             {
-                Console.WriteLine("\n✅ Teste excluído com sucesso!");
+                Console.WriteLine("\n Teste excluído com sucesso!");
             }
             else
             {
-                Console.WriteLine("\n❌ Falha ao excluir teste (não encontrado).");
+                Console.WriteLine("\n Falha ao excluir teste (não encontrado).");
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"\n❌ Erro ao excluir teste: {ex.Message}");
+            Console.WriteLine($"\n Erro ao excluir teste: {ex.Message}");
         }
     }
 }

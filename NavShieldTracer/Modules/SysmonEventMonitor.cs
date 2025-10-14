@@ -39,19 +39,27 @@ namespace NavShieldTracer.Modules
     /// </remarks>
     public class SysmonEventMonitor
     {
-        private const string SysmonLogName = "Microsoft-Windows-Sysmon/Operational";
+        /// <summary>
+        /// Nome padrão do canal de eventos operacional do Sysmon.
+        /// </summary>
+        public const string DefaultLogName = "Microsoft-Windows-Sysmon/Operational";
         private readonly ProcessActivityTracker _tracker;
+        private readonly string _logName;
         private EventLogWatcher? _watcher;
         private CancellationTokenSource? _cancellationTokenSource;
         private long _sequenceNumber = 0;
 
         /// <summary>
-        /// Inicializa uma nova instância da classe <see cref="SysmonEventMonitor"/>.
+        /// Cria uma nova instância da classe <see cref="SysmonEventMonitor"/>.
         /// </summary>
-        /// <param name="tracker">A instância de <see cref="ProcessActivityTracker"/> para a qual os eventos serão enviados.</param>
-        public SysmonEventMonitor(ProcessActivityTracker tracker)
+        /// <param name="tracker">Instância de <see cref="ProcessActivityTracker"/> que receberá os eventos processados.</param>
+        /// <param name="logName">Nome do canal do Sysmon a ser monitorado. Quando nulo, usa <see cref="DefaultLogName"/>.</param>
+        public SysmonEventMonitor(ProcessActivityTracker tracker, string? logName = null)
         {
             _tracker = tracker;
+            _logName = string.IsNullOrWhiteSpace(logName)
+                ? DefaultLogName
+                : logName;
         }
 
         /// <summary>
@@ -77,7 +85,7 @@ namespace NavShieldTracer.Modules
             
             _tracker.Initialize(); // Verifica processos existentes no início
             _cancellationTokenSource = new CancellationTokenSource();
-            var query = new EventLogQuery(SysmonLogName, PathType.LogName, "*[System[Provider[@Name='Microsoft-Windows-Sysmon']]]");
+            var query = new EventLogQuery(_logName, PathType.LogName, "*[System[Provider[@Name='Microsoft-Windows-Sysmon']]]");
             
             _watcher = new EventLogWatcher(query);
             _watcher.EventRecordWritten += (sender, args) =>
@@ -108,7 +116,7 @@ namespace NavShieldTracer.Modules
                 Console.WriteLine("🔍 Analisando configuração do Sysmon...");
                 
                 // Analisa os últimos 100 eventos para ver que tipos estão sendo gerados
-                var query = new EventLogQuery(SysmonLogName, PathType.LogName, "*[System[Provider[@Name='Microsoft-Windows-Sysmon']]]");
+                var query = new EventLogQuery(_logName, PathType.LogName, "*[System[Provider[@Name='Microsoft-Windows-Sysmon']]]");
                 query.ReverseDirection = true;
                 
                 var eventCounts = new Dictionary<int, int>();
@@ -238,7 +246,7 @@ namespace NavShieldTracer.Modules
             {
                 // Opcional: Processa eventos recentes para garantir que não perdemos o início do processo
                 // se ele começar imediatamente após o NavShieldTracer.
-                var query = new EventLogQuery(SysmonLogName, PathType.LogName, "*[System[Provider[@Name='Microsoft-Windows-Sysmon']]]");
+                var query = new EventLogQuery(_logName, PathType.LogName, "*[System[Provider[@Name='Microsoft-Windows-Sysmon']]]");
                 query.ReverseDirection = true; // Começa dos mais recentes
 
                 using (var reader = new EventLogReader(query))

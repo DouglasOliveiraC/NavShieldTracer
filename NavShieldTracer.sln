@@ -10,11 +10,8 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{C1A2B3C4-D5E6-F7A8-B9C0-D1E2F3A4B5C6}"
 	ProjectSection(SolutionItems) = preProject
 		README.md = README.md
-		CHANGELOG.md = CHANGELOG.md
 		TESTE_GUIA.md = TESTE_GUIA.md
-		ANALISE_LOGS.md = ANALISE_LOGS.md
 		sysmon-config-completa.xml = sysmon-config-completa.xml
-		executar_teste.bat = executar_teste.bat
 		.gitignore = .gitignore
 	EndProjectSection
 EndProject

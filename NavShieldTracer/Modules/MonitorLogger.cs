@@ -76,8 +76,8 @@ namespace NavShieldTracer.Modules
             var metadataJson = JsonSerializer.Serialize(metadados, JsonOptions);
             File.WriteAllText(metadataPath, metadataJson);
             
-            Console.WriteLine($"📁 Pasta de logs criada: {_sessionDir}");
-            Console.WriteLine($"📋 Metadados da sessão salvos em: metadata_sessao.json");
+            Console.WriteLine($" Pasta de logs criada: {_sessionDir}");
+            Console.WriteLine($" Metadados da sessão salvos em: metadata_sessao.json");
         }
 
         /// <summary>
@@ -94,7 +94,7 @@ namespace NavShieldTracer.Modules
                 if (!EventTypeToFolderName.TryGetValue(dataType, out var folderName))
                 {
                     folderName = "OutrosEventos"; // Pasta padrão para eventos não mapeados
-                    Console.WriteLine($"⚠️ Tipo de evento não mapeado: {dataType.Name} (Event ID: {GetEventId(data)})");
+                    Console.WriteLine($"⚠ Tipo de evento não mapeado: {dataType.Name} (Event ID: {GetEventId(data)})");
                 }
 
                 var logDir = Path.Combine(_sessionDir, folderName);
@@ -109,7 +109,7 @@ namespace NavShieldTracer.Modules
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"❌ Erro ao gravar log para o evento '{typeof(T).Name}': {ex.Message}");
+                Console.WriteLine($" Erro ao gravar log para o evento '{typeof(T).Name}': {ex.Message}");
             }
         }
 
@@ -130,13 +130,13 @@ namespace NavShieldTracer.Modules
                 var estatisticasJson = JsonSerializer.Serialize(estatisticas, JsonOptions);
                 File.WriteAllText(estatisticasPath, estatisticasJson);
                 
-                Console.WriteLine($"\n⏹️ Monitoramento finalizado. Os logs foram salvos em:");
-                Console.WriteLine($"📁 {_sessionDir}");
-                Console.WriteLine($"📊 Estatísticas salvas em: estatisticas_eventos.json");
+                Console.WriteLine($"\n Monitoramento finalizado. Os logs foram salvos em:");
+                Console.WriteLine($" {_sessionDir}");
+                Console.WriteLine($" Estatísticas salvas em: estatisticas_eventos.json");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"❌ Falha ao salvar o resumo do log: {ex.Message}");
+                Console.WriteLine($" Falha ao salvar o resumo do log: {ex.Message}");
             }
         }
 
