@@ -1,4 +1,4 @@
-namespace NavShieldTracer.Modules
+namespace NavShieldTracer.Modules.Models
 {
     /// <summary>
     /// Classe base para todos os eventos do Sysmon, contendo informações comuns.

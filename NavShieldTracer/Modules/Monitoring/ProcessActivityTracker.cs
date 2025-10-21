@@ -5,8 +5,9 @@ using System.Diagnostics;
 using System.Linq;
 using System.ComponentModel;
 using NavShieldTracer.Modules.Storage;
+using NavShieldTracer.Modules.Models;
 
-namespace NavShieldTracer.Modules
+namespace NavShieldTracer.Modules.Monitoring
 {
     /// <summary>
     /// Rastreia a atividade de processos relacionados a um executável alvo, incluindo processos filhos.

@@ -5,7 +5,7 @@ using System.Linq;
 using System.Security.Principal;
 using System.ServiceProcess;
 
-namespace NavShieldTracer.Modules;
+namespace NavShieldTracer.Modules.Diagnostics;
 
 internal static class SysmonDiagnostics
 {

@@ -56,3 +56,13 @@ analise_*.md
 planejamento_*.md
 DIAGNOSTICO_*.md
 APRESENTACAO_*.*
+/analise_duplicatas.sql
+/executar_teste.bat
+/nul
+/qodana.sarif.json
+/qodana.yaml
+/ReadDb.cs
+/sysmon-config-completa.xml
+/sysmon-config-completa.xml.backup
+/DbReader
+/docs

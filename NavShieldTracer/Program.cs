@@ -1,8 +1,10 @@
-using NavShieldTracer.Modules;
 using System.Diagnostics;
 using System.Text.Json;
 using NavShieldTracer.Modules.Storage;
 using NavShieldTracer.Modules.Heuristics.Normalization;
+using NavShieldTracer.Modules.Monitoring;
+using NavShieldTracer.Modules.Diagnostics;
+using NavShieldTracer.Modules.Models;
 
 /// <summary>
 /// Ponto de entrada principal para o aplicativo NavShieldTracer.

@@ -6,8 +6,9 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using Microsoft.Data.Sqlite;
-using NavShieldTracer.Modules;
+using NavShieldTracer.Modules.Models;
 using NavShieldTracer.Modules.Heuristics.Normalization;
+using NavShieldTracer.Modules.Heuristics.Engine;
 
 namespace NavShieldTracer.Modules.Storage
 {
@@ -151,6 +152,20 @@ namespace NavShieldTracer.Modules.Storage
             CREATE INDEX IF NOT EXISTS idx_events_dns ON events(dns_query);
             CREATE INDEX IF NOT EXISTS idx_events_target ON events(target_filename);
 
+            -- OTIMIZAÇÕES PARA MOTOR HEURÍSTICO
+            -- Índice composto para janela temporal (query crítica do motor)
+            CREATE INDEX IF NOT EXISTS idx_events_session_time
+                ON events(session_id, utc_time, capture_time);
+
+            -- Índice para filtros de rede (Event ID 3)
+            CREATE INDEX IF NOT EXISTS idx_events_network
+                ON events(session_id, event_id, dst_ip)
+                WHERE event_id = 3;
+
+            -- Índice para sequência temporal
+            CREATE INDEX IF NOT EXISTS idx_events_sequence
+                ON events(session_id, sequence_number, id);
+
             CREATE TABLE IF NOT EXISTS atomic_tests (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 numero TEXT NOT NULL,
@@ -231,6 +246,42 @@ namespace NavShieldTracer.Modules.Storage
             );
 
             CREATE INDEX IF NOT EXISTS idx_normalization_log_test ON normalization_log(test_id);
+
+            CREATE TABLE IF NOT EXISTS session_similarity_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                snapshot_at TEXT NOT NULL,
+                matches TEXT NOT NULL,
+                highest_match_test_id INTEGER,
+                highest_similarity REAL,
+                session_threat_level TEXT NOT NULL,
+                event_count_at_snapshot INTEGER NOT NULL,
+                active_processes_count INTEGER,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_snapshots_session ON session_similarity_snapshots(session_id);
+            CREATE INDEX IF NOT EXISTS idx_snapshots_time ON session_similarity_snapshots(snapshot_at);
+            CREATE INDEX IF NOT EXISTS idx_snapshots_level ON session_similarity_snapshots(session_threat_level);
+
+            CREATE TABLE IF NOT EXISTS alert_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                timestamp TEXT NOT NULL,
+                previous_level TEXT,
+                new_level TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                trigger_technique_id TEXT,
+                trigger_similarity REAL,
+                snapshot_id INTEGER,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY(snapshot_id) REFERENCES session_similarity_snapshots(id) ON DELETE SET NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_alert_history_session ON alert_history(session_id);
+            CREATE INDEX IF NOT EXISTS idx_alert_history_time ON alert_history(timestamp);
             ";
             cmd.ExecuteNonQuery();
             EnsureAtomicNormalizationColumns(tx);
@@ -1173,6 +1224,326 @@ namespace NavShieldTracer.Modules.Storage
                 tx.Rollback();
                 throw;
             }
+        }
+
+        // ==================== MÉTODOS DO MOTOR HEURÍSTICO ====================
+
+        /// <summary>
+        /// Busca eventos de uma sessão a partir de um determinado timestamp (janela deslizante).
+        /// </summary>
+        internal IReadOnlyList<CatalogEventSnapshot> ObterEventosDaSessaoAPartirDe(int sessionId, DateTime fromTimestamp)
+        {
+            var eventos = new List<CatalogEventSnapshot>();
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT
+                    id, event_id, utc_time, capture_time, sequence_number,
+                    image, command_line, parent_image, parent_command_line,
+                    process_id, parent_process_id, process_guid, parent_process_guid,
+                    user, integrity_level, hashes,
+                    target_filename, image_loaded, signed, signature, signature_status,
+                    pipe_name, wmi_operation, wmi_name, wmi_query,
+                    dns_query, dns_result, dns_type,
+                    src_ip, src_port, dst_ip, dst_port, protocol,
+                    raw_json
+                FROM events
+                WHERE session_id = $session_id
+                  AND (utc_time >= $from OR capture_time >= $from)
+                ORDER BY sequence_number ASC, id ASC;
+            ";
+            cmd.Parameters.AddWithValue("$session_id", sessionId);
+            cmd.Parameters.AddWithValue("$from", fromTimestamp.ToString("o"));
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                eventos.Add(ReadCatalogEventSnapshot(reader));
+            }
+
+            return eventos;
+        }
+
+        /// <summary>
+        /// Carrega todas as técnicas catalogadas e normalizadas para análise.
+        /// </summary>
+        internal List<CatalogedTechniqueContext> CarregarTecnicasCatalogadas()
+        {
+            var techniques = new List<CatalogedTechniqueContext>();
+
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT
+                    nts.id, nts.test_id, nts.feature_vector_json,
+                    nts.severity_label, nts.status,
+                    at.numero, at.nome
+                FROM normalized_test_signatures nts
+                INNER JOIN atomic_tests at ON nts.test_id = at.id
+                WHERE nts.status = 'Completed' AND at.finalizado = 1
+                ORDER BY nts.id;
+            ";
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var testId = reader.GetInt32(1);
+                var featureVectorJson = reader.GetString(2);
+                var severityLabel = reader.GetString(3);
+                var techniqueId = reader.GetString(5);
+                var techniqueName = reader.GetString(6);
+
+                // Deserializar feature vector
+                var featureVectorDict = JsonSerializer.Deserialize<Dictionary<string, object>>(featureVectorJson);
+                if (featureVectorDict == null) continue;
+
+                // Extrair histograma
+                var histogram = new Dictionary<int, int>();
+                if (featureVectorDict.TryGetValue("eventTypeHistogram", out var histObj) && histObj is JsonElement histElem)
+                {
+                    foreach (var prop in histElem.EnumerateObject())
+                    {
+                        if (int.TryParse(prop.Name, out var eventId))
+                        {
+                            histogram[eventId] = prop.Value.GetInt32();
+                        }
+                    }
+                }
+
+                var processTreeDepth = featureVectorDict.TryGetValue("processTreeDepth", out var ptd) && ptd is JsonElement ptdElem ? ptdElem.GetInt32() : 0;
+                var networkConnectionsCount = featureVectorDict.TryGetValue("networkConnectionsCount", out var ncc) && ncc is JsonElement nccElem ? nccElem.GetInt32() : 0;
+                var registryOperationsCount = featureVectorDict.TryGetValue("registryOperationsCount", out var roc) && roc is JsonElement rocElem ? rocElem.GetInt32() : 0;
+                var fileOperationsCount = featureVectorDict.TryGetValue("fileOperationsCount", out var foc) && foc is JsonElement focElem ? focElem.GetInt32() : 0;
+                var temporalSpanSeconds = featureVectorDict.TryGetValue("temporalSpanSeconds", out var tss) && tss is JsonElement tssElem ? tssElem.GetDouble() : 0.0;
+                var criticalEventsCount = featureVectorDict.TryGetValue("criticalEventsCount", out var cec) && cec is JsonElement cecElem ? cecElem.GetInt32() : 0;
+
+                var featureVector = new Heuristics.Normalization.NormalizedFeatureVector(
+                    histogram,
+                    processTreeDepth,
+                    networkConnectionsCount,
+                    registryOperationsCount,
+                    fileOperationsCount,
+                    temporalSpanSeconds,
+                    criticalEventsCount
+                );
+
+                // Carregar core events com ordem e tempo relativo
+                var coreEventPatterns = CarregarCoreEventPatterns(testId);
+                var coreEvents = coreEventPatterns
+                    .Select(p => p.EventId)
+                    .Distinct()
+                    .ToList();
+
+                // Carregar whitelist
+                var (whitelistedIps, whitelistedDomains, whitelistedProcesses) = CarregarWhitelist(testId);
+
+                // Parse severity
+                Enum.TryParse<Heuristics.Normalization.ThreatSeverityTarja>(severityLabel, out var severity);
+
+                techniques.Add(new CatalogedTechniqueContext
+                {
+                    TestId = testId,
+                    TechniqueId = techniqueId,
+                    TechniqueName = techniqueName,
+                    Tactic = InferTacticFromTechnique(techniqueId),
+                    ThreatLevel = severity,
+                    FeatureVector = featureVector,
+                    CoreEventIds = coreEvents,
+                    CoreEventPatterns = coreEventPatterns,
+                    WhitelistedIps = whitelistedIps,
+                    WhitelistedDomains = whitelistedDomains,
+                    WhitelistedProcesses = whitelistedProcesses
+                });
+            }
+
+            return techniques;
+        }
+
+        private List<CoreEventPattern> CarregarCoreEventPatterns(int testId)
+        {
+            var orderedEvents = new List<(int EventId, DateTime? EventTime)>();
+
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT event_id, event_time, event_row_id, id
+                FROM normalized_core_events
+                WHERE signature_id = (SELECT id FROM normalized_test_signatures WHERE test_id = $test_id)
+                ORDER BY 
+                    CASE WHEN event_time IS NULL THEN 1 ELSE 0 END,
+                    event_time,
+                    event_row_id,
+                    id;
+            ";
+            cmd.Parameters.AddWithValue("$test_id", testId);
+
+            using (var reader = cmd.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    var eventId = reader.GetInt32(0);
+                    DateTime? eventTime = null;
+
+                    if (!reader.IsDBNull(1))
+                    {
+                        var raw = reader.GetString(1);
+                        if (DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed))
+                        {
+                            eventTime = parsed;
+                        }
+                    }
+
+                    orderedEvents.Add((eventId, eventTime));
+                }
+            }
+
+            DateTime? reference = orderedEvents
+                .Select(e => e.EventTime)
+                .FirstOrDefault(t => t.HasValue);
+
+            var patterns = new List<CoreEventPattern>(orderedEvents.Count);
+            foreach (var entry in orderedEvents)
+            {
+                double? relativeSeconds = null;
+                if (entry.EventTime.HasValue && reference.HasValue)
+                {
+                    relativeSeconds = (entry.EventTime.Value - reference.Value).TotalSeconds;
+                }
+
+                patterns.Add(new CoreEventPattern(entry.EventId, relativeSeconds));
+            }
+
+            return patterns;
+        }
+
+        private (HashSet<string>, HashSet<string>, HashSet<string>) CarregarWhitelist(int testId)
+        {
+            var ips = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var domains = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var processes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT entry_type, value
+                FROM normalized_whitelist_entries
+                WHERE signature_id = (SELECT id FROM normalized_test_signatures WHERE test_id = $test_id)
+                  AND approved = 1;
+            ";
+            cmd.Parameters.AddWithValue("$test_id", testId);
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var type = reader.GetString(0);
+                var value = reader.GetString(1);
+
+                switch (type.ToUpperInvariant())
+                {
+                    case "IP":
+                        ips.Add(value);
+                        break;
+                    case "DOMAIN":
+                        domains.Add(value);
+                        break;
+                    case "PROCESS":
+                        processes.Add(value);
+                        break;
+                }
+            }
+
+            return (ips, domains, processes);
+        }
+
+        private string InferTacticFromTechnique(string techniqueId)
+        {
+            // Mapeamento simplificado de técnicas para táticas
+            return techniqueId.Split('.')[0] switch
+            {
+                "T1003" => "Credential Access",
+                "T1055" => "Privilege Escalation",
+                "T1059" => "Execution",
+                "T1071" => "Command and Control",
+                "T1082" => "Discovery",
+                "T1105" => "Command and Control",
+                "T1543" => "Persistence",
+                _ => "Unknown"
+            };
+        }
+
+        /// <summary>
+        /// Salva um snapshot de análise de similaridade.
+        /// </summary>
+        internal int SalvarSnapshot(SessionSnapshot snapshot)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                INSERT INTO session_similarity_snapshots (
+                    session_id, snapshot_at, matches, highest_match_test_id,
+                    highest_similarity, session_threat_level, event_count_at_snapshot,
+                    active_processes_count
+                )
+                VALUES (
+                    $session_id, $snapshot_at, $matches, $highest_match_test_id,
+                    $highest_similarity, $session_threat_level, $event_count_at_snapshot,
+                    $active_processes_count
+                )
+                RETURNING id;
+            ";
+
+            cmd.Parameters.AddWithValue("$session_id", snapshot.SessionId);
+            cmd.Parameters.AddWithValue("$snapshot_at", snapshot.SnapshotAt.ToString("o"));
+            cmd.Parameters.AddWithValue("$matches", SerializeMatches(snapshot.Matches));
+            cmd.Parameters.AddWithValue("$highest_match_test_id", (object?)snapshot.HighestMatch?.TestId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$highest_similarity", (object?)snapshot.HighestMatch?.Similarity ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$session_threat_level", snapshot.SessionThreatLevel.ToString());
+            cmd.Parameters.AddWithValue("$event_count_at_snapshot", snapshot.EventCountAtSnapshot);
+            cmd.Parameters.AddWithValue("$active_processes_count", snapshot.ActiveProcessesCount);
+
+            return Convert.ToInt32(cmd.ExecuteScalar());
+        }
+
+        private string SerializeMatches(IReadOnlyList<SimilarityMatch> matches)
+        {
+            var matchesData = matches.Select(m => new
+            {
+                test_id = m.TestId,
+                technique_id = m.TechniqueId,
+                technique_name = m.TechniqueName,
+                tactic = m.Tactic,
+                similarity = m.Similarity,
+                threat_level = m.ThreatLevel.ToString(),
+                confidence = m.Confidence,
+                matched_events = m.MatchedEventIds
+            });
+
+            return JsonSerializer.Serialize(matchesData, _serializerOptions);
+        }
+
+        /// <summary>
+        /// Salva um alerta de mudança de nível de ameaça.
+        /// </summary>
+        internal int SalvarAlerta(ThreatAlert alert)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                INSERT INTO alert_history (
+                    session_id, timestamp, previous_level, new_level, reason,
+                    trigger_technique_id, trigger_similarity, snapshot_id
+                )
+                VALUES (
+                    $session_id, $timestamp, $previous_level, $new_level, $reason,
+                    $trigger_technique_id, $trigger_similarity, $snapshot_id
+                )
+                RETURNING id;
+            ";
+
+            cmd.Parameters.AddWithValue("$session_id", alert.SessionId);
+            cmd.Parameters.AddWithValue("$timestamp", alert.Timestamp.ToString("o"));
+            cmd.Parameters.AddWithValue("$previous_level", (object?)alert.PreviousLevel?.ToString() ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$new_level", alert.NewLevel.ToString());
+            cmd.Parameters.AddWithValue("$reason", alert.Reason);
+            cmd.Parameters.AddWithValue("$trigger_technique_id", (object?)alert.TriggerTechniqueId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$trigger_similarity", (object?)alert.TriggerSimilarity ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$snapshot_id", (object?)alert.SnapshotId ?? DBNull.Value);
+
+            return Convert.ToInt32(cmd.ExecuteScalar());
         }
 
         /// <summary>

@@ -5,8 +5,9 @@ using System.Threading.Tasks;
 using System.Xml.Linq;
 using System.Collections.Generic;
 using System.Linq;
+using NavShieldTracer.Modules.Models;
 
-namespace NavShieldTracer.Modules
+namespace NavShieldTracer.Modules.Monitoring
 {
     /// <summary>
     /// Monitora eventos do Sysmon no log operacional do Windows e os encaminha para um rastreador de atividade de processo.
@@ -30,8 +31,9 @@ namespace NavShieldTracer.Modules
     /// - Event ID 10: Acesso a processo
     /// - Event ID 11: Criação de arquivo
     /// - Event IDs 12-14: Operações de registro
-    /// - Event ID 15: Criação de stream de arquivo
-    /// - Event IDs 17-18: Operações de pipe
+    /// - Event ID 15: Criaçao de stream de arquivo
+    /// - Event ID 16: Mudanças de estado/configuraçao do Sysmon (ignorados intencionalmente)
+    /// - Event IDs 17-18: Operaçoes de pipe
     /// - Event IDs 19-21: Eventos WMI
     /// - Event ID 22: Consulta DNS
     /// - Event ID 23: Exclusão de arquivo
