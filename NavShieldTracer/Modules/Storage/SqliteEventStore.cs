@@ -3,9 +3,11 @@ using System.Data;
 using System.IO;
 using System.Text.Json;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Microsoft.Data.Sqlite;
 using NavShieldTracer.Modules;
+using NavShieldTracer.Modules.Heuristics.Normalization;
 
 namespace NavShieldTracer.Modules.Storage
 {
@@ -16,6 +18,11 @@ namespace NavShieldTracer.Modules.Storage
     {
         private readonly SqliteConnection _conn;
         private bool _disposed;
+        private static readonly JsonSerializerOptions _serializerOptions = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            WriteIndented = false
+        };
         /// <summary>
         /// Caminho do arquivo de banco de dados SQLite
         /// </summary>
@@ -160,9 +167,97 @@ namespace NavShieldTracer.Modules.Storage
             CREATE INDEX IF NOT EXISTS idx_atomic_tests_numero ON atomic_tests(numero);
             CREATE INDEX IF NOT EXISTS idx_atomic_tests_data ON atomic_tests(data_execucao);
             CREATE INDEX IF NOT EXISTS idx_atomic_tests_session ON atomic_tests(session_id);
+
+            CREATE TABLE IF NOT EXISTS normalized_test_signatures (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                test_id INTEGER NOT NULL UNIQUE,
+                signature_hash TEXT NOT NULL,
+                status TEXT NOT NULL,
+                severity_label TEXT NOT NULL,
+                severity_reason TEXT,
+                feature_vector_json TEXT NOT NULL,
+                total_events INTEGER NOT NULL,
+                core_event_count INTEGER NOT NULL,
+                support_event_count INTEGER NOT NULL,
+                noise_event_count INTEGER NOT NULL,
+                duration_seconds REAL,
+                quality_score REAL,
+                notes TEXT,
+                quality_warnings_json TEXT,
+                processed_at TEXT NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT,
+                FOREIGN KEY(test_id) REFERENCES atomic_tests(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_normalized_signatures_test ON normalized_test_signatures(test_id);
+
+            CREATE TABLE IF NOT EXISTS normalized_core_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                signature_id INTEGER NOT NULL,
+                event_row_id INTEGER,
+                event_id INTEGER NOT NULL,
+                event_time TEXT,
+                image TEXT,
+                command_line TEXT,
+                metadata_json TEXT,
+                FOREIGN KEY(signature_id) REFERENCES normalized_test_signatures(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_normalized_core_signature ON normalized_core_events(signature_id);
+
+            CREATE TABLE IF NOT EXISTS normalized_whitelist_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                signature_id INTEGER NOT NULL,
+                entry_type TEXT NOT NULL,
+                value TEXT NOT NULL,
+                reason TEXT,
+                approved INTEGER DEFAULT 0,
+                auto_generated INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(signature_id) REFERENCES normalized_test_signatures(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_normalized_whitelist_signature ON normalized_whitelist_entries(signature_id);
+
+            CREATE TABLE IF NOT EXISTS normalization_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                test_id INTEGER NOT NULL,
+                stage TEXT NOT NULL,
+                level TEXT NOT NULL,
+                message TEXT NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(test_id) REFERENCES atomic_tests(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_normalization_log_test ON normalization_log(test_id);
             ";
             cmd.ExecuteNonQuery();
+            EnsureAtomicNormalizationColumns(tx);
             tx.Commit();
+        }
+
+        private void EnsureAtomicNormalizationColumns(SqliteTransaction tx)
+        {
+            EnsureColumnExists(tx, "atomic_tests", "normalized_at", "TEXT");
+            EnsureColumnExists(tx, "atomic_tests", "tarja", "TEXT");
+            EnsureColumnExists(tx, "atomic_tests", "tarja_reason", "TEXT");
+            EnsureColumnExists(tx, "atomic_tests", "normalization_status", "TEXT DEFAULT 'Pending'");
+        }
+
+        private void EnsureColumnExists(SqliteTransaction tx, string table, string column, string definition)
+        {
+            using var checkCmd = _conn.CreateCommand();
+            checkCmd.Transaction = tx;
+            checkCmd.CommandText = $"SELECT 1 FROM pragma_table_info('{table}') WHERE name = '{column}' LIMIT 1;";
+            var exists = checkCmd.ExecuteScalar();
+            if (exists == null || exists == DBNull.Value)
+            {
+                using var alterCmd = _conn.CreateCommand();
+                alterCmd.Transaction = tx;
+                alterCmd.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition};";
+                alterCmd.ExecuteNonQuery();
+            }
         }
 
         /// <summary>
@@ -190,6 +285,47 @@ namespace NavShieldTracer.Modules.Storage
         }
 
         /// <summary>
+        /// Recupera um teste atômico previamente catalogado.
+        /// </summary>
+        /// <param name="testeId">Identificador do teste.</param>
+        /// <returns>Instância do teste ou null se não encontrado.</returns>
+        public TesteAtomico? ObterTesteAtomico(int testeId)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT id, numero, nome, descricao, data_execucao, session_id, total_eventos
+                FROM atomic_tests
+                WHERE id = $id;
+            ";
+            cmd.Parameters.AddWithValue("$id", testeId);
+            using var reader = cmd.ExecuteReader();
+            if (!reader.Read())
+            {
+                return null;
+            }
+
+            var dataExecucaoRaw = reader.IsDBNull(4) ? null : reader.GetString(4);
+            DateTime dataExecucao = DateTime.Now;
+            if (!string.IsNullOrWhiteSpace(dataExecucaoRaw))
+            {
+                if (!DateTime.TryParse(dataExecucaoRaw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out dataExecucao))
+                {
+                    DateTime.TryParse(dataExecucaoRaw, out dataExecucao);
+                }
+            }
+
+            return new TesteAtomico(
+                reader.GetInt32(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                dataExecucao,
+                reader.GetInt32(5),
+                reader.IsDBNull(6) ? 0 : reader.GetInt32(6)
+            );
+        }
+
+        /// <summary>
         /// Finaliza uma sessão de monitoramento
         /// </summary>
         /// <param name="sessionId">ID da sessão</param>
@@ -209,6 +345,159 @@ namespace NavShieldTracer.Modules.Storage
             if (!string.IsNullOrEmpty(notes)) notes = (notes + "\n");
             cmd.Parameters.AddWithValue("$notes", notes);
             cmd.ExecuteNonQuery();
+        }
+
+        /// <summary>
+        /// Retorna os eventos associados a uma sessão, prontos para análise heurística.
+        /// </summary>
+        /// <param name="sessionId">Identificador da sessão no banco.</param>
+        /// <returns>Coleção ordenada dos eventos capturados.</returns>
+        internal IReadOnlyList<CatalogEventSnapshot> ObterEventosDaSessao(int sessionId)
+        {
+            var eventos = new List<CatalogEventSnapshot>();
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT
+                    id,
+                    event_id,
+                    utc_time,
+                    capture_time,
+                    sequence_number,
+                    image,
+                    command_line,
+                    parent_image,
+                    parent_command_line,
+                    process_id,
+                    parent_process_id,
+                    process_guid,
+                    parent_process_guid,
+                    user,
+                    integrity_level,
+                    hashes,
+                    target_filename,
+                    image_loaded,
+                    signed,
+                    signature,
+                    signature_status,
+                    pipe_name,
+                    wmi_operation,
+                    wmi_name,
+                    wmi_query,
+                    dns_query,
+                    dns_result,
+                    dns_type,
+                    src_ip,
+                    src_port,
+                    dst_ip,
+                    dst_port,
+                    protocol,
+                    raw_json
+                FROM events
+                WHERE session_id = $session_id
+                ORDER BY
+                    CASE WHEN utc_time IS NOT NULL THEN utc_time ELSE capture_time END,
+                    id;
+            ";
+            cmd.Parameters.AddWithValue("$session_id", sessionId);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                eventos.Add(ReadCatalogEventSnapshot(reader));
+            }
+
+            return eventos;
+        }
+
+        private static CatalogEventSnapshot ReadCatalogEventSnapshot(SqliteDataReader reader)
+        {
+            var utcString = reader.IsDBNull(2) ? null : reader.GetString(2);
+            var captureString = reader.IsDBNull(3) ? null : reader.GetString(3);
+
+            return new CatalogEventSnapshot(
+                reader.GetInt32(0),
+                reader.IsDBNull(1) ? 0 : reader.GetInt32(1),
+                ParseDateTimeOrNull(utcString),
+                ParseDateTimeOrNull(captureString),
+                reader.IsDBNull(4) ? (long?)null : reader.GetInt64(4),
+                reader.IsDBNull(5) ? null : reader.GetString(5),
+                reader.IsDBNull(6) ? null : reader.GetString(6),
+                reader.IsDBNull(7) ? null : reader.GetString(7),
+                reader.IsDBNull(8) ? null : reader.GetString(8),
+                reader.IsDBNull(9) ? (int?)null : reader.GetInt32(9),
+                reader.IsDBNull(10) ? (int?)null : reader.GetInt32(10),
+                reader.IsDBNull(11) ? null : reader.GetString(11),
+                reader.IsDBNull(12) ? null : reader.GetString(12),
+                reader.IsDBNull(13) ? null : reader.GetString(13),
+                reader.IsDBNull(14) ? null : reader.GetString(14),
+                reader.IsDBNull(15) ? null : reader.GetString(15),
+                reader.IsDBNull(16) ? null : reader.GetString(16),
+                reader.IsDBNull(17) ? null : reader.GetString(17),
+                reader.IsDBNull(18) ? null : reader.GetString(18),
+                reader.IsDBNull(19) ? null : reader.GetString(19),
+                reader.IsDBNull(20) ? null : reader.GetString(20),
+                reader.IsDBNull(21) ? null : reader.GetString(21),
+                reader.IsDBNull(22) ? null : reader.GetString(22),
+                reader.IsDBNull(23) ? null : reader.GetString(23),
+                reader.IsDBNull(24) ? null : reader.GetString(24),
+                reader.IsDBNull(25) ? null : reader.GetString(25),
+                reader.IsDBNull(26) ? null : reader.GetString(26),
+                reader.IsDBNull(27) ? null : reader.GetString(27),
+                reader.IsDBNull(28) ? null : reader.GetString(28),
+                reader.IsDBNull(29) ? (int?)null : reader.GetInt32(29),
+                reader.IsDBNull(30) ? null : reader.GetString(30),
+                reader.IsDBNull(31) ? (int?)null : reader.GetInt32(31),
+                reader.IsDBNull(32) ? null : reader.GetString(32),
+                reader.IsDBNull(33) ? null : reader.GetString(33)
+            );
+        }
+
+        private static DateTime? ParseDateTimeOrNull(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var dt))
+            {
+                return dt;
+            }
+
+            return DateTime.TryParse(value, out dt) ? dt : null;
+        }
+
+        private static IDictionary<string, object?> BuildCoreEventMetadata(CatalogEventSnapshot core)
+        {
+            return new Dictionary<string, object?>
+            {
+                ["parentImage"] = core.ParentImage,
+                ["parentCommandLine"] = core.ParentCommandLine,
+                ["parentProcessId"] = core.ParentProcessId,
+                ["parentProcessGuid"] = core.ParentProcessGuid,
+                ["processGuid"] = core.ProcessGuid,
+                ["user"] = core.User,
+                ["integrityLevel"] = core.IntegrityLevel,
+                ["hashes"] = core.Hashes,
+                ["targetFilename"] = core.TargetFilename,
+                ["imageLoaded"] = core.ImageLoaded,
+                ["signed"] = core.Signed,
+                ["signature"] = core.Signature,
+                ["signatureStatus"] = core.SignatureStatus,
+                ["pipeName"] = core.PipeName,
+                ["wmiOperation"] = core.WmiOperation,
+                ["wmiName"] = core.WmiName,
+                ["wmiQuery"] = core.WmiQuery,
+                ["dnsQuery"] = core.DnsQuery,
+                ["dnsResult"] = core.DnsResult,
+                ["dnsType"] = core.DnsType,
+                ["srcIp"] = core.SrcIp,
+                ["srcPort"] = core.SrcPort,
+                ["dstIp"] = core.DstIp,
+                ["dstPort"] = core.DstPort,
+                ["protocol"] = core.Protocol,
+                ["sequenceNumber"] = core.SequenceNumber,
+                ["rawJson"] = core.RawJson
+            };
         }
 
         /// <summary>
@@ -618,6 +907,221 @@ namespace NavShieldTracer.Modules.Storage
         }
 
         /// <summary>
+        /// Persiste o resultado completo da normalização heurística no banco.
+        /// </summary>
+        /// <param name="resultado">Resultado produzido pelo motor de normalização.</param>
+        internal void SalvarResultadoNormalizacao(CatalogNormalizationResult resultado)
+        {
+            using var tx = _conn.BeginTransaction();
+            try
+            {
+                using (var cmdDelSignature = _conn.CreateCommand())
+                {
+                    cmdDelSignature.Transaction = tx;
+                    cmdDelSignature.CommandText = "DELETE FROM normalized_test_signatures WHERE test_id = $test_id;";
+                    cmdDelSignature.Parameters.AddWithValue("$test_id", resultado.Signature.TestId);
+                    cmdDelSignature.ExecuteNonQuery();
+                }
+
+                using (var cmdDelLog = _conn.CreateCommand())
+                {
+                    cmdDelLog.Transaction = tx;
+                    cmdDelLog.CommandText = "DELETE FROM normalization_log WHERE test_id = $test_id;";
+                    cmdDelLog.Parameters.AddWithValue("$test_id", resultado.Signature.TestId);
+                    cmdDelLog.ExecuteNonQuery();
+                }
+
+                var featureVector = resultado.Signature.FeatureVector;
+                var featurePayload = new
+                {
+                    eventTypeHistogram = featureVector.EventTypeHistogram,
+                    processTreeDepth = featureVector.ProcessTreeDepth,
+                    networkConnectionsCount = featureVector.NetworkConnectionsCount,
+                    registryOperationsCount = featureVector.RegistryOperationsCount,
+                    fileOperationsCount = featureVector.FileOperationsCount,
+                    temporalSpanSeconds = featureVector.TemporalSpanSeconds,
+                    criticalEventsCount = featureVector.CriticalEventsCount
+                };
+
+                var featureJson = JsonSerializer.Serialize(featurePayload, _serializerOptions);
+                var warningsJson = JsonSerializer.Serialize(resultado.Quality.Warnings ?? Array.Empty<string>(), _serializerOptions);
+                var nowIso = DateTime.Now.ToString("o");
+
+                int signatureId;
+                using (var cmdInsertSignature = _conn.CreateCommand())
+                {
+                    cmdInsertSignature.Transaction = tx;
+                    cmdInsertSignature.CommandText = @"
+                        INSERT INTO normalized_test_signatures (
+                            test_id,
+                            signature_hash,
+                            status,
+                            severity_label,
+                            severity_reason,
+                            feature_vector_json,
+                            total_events,
+                            core_event_count,
+                            support_event_count,
+                            noise_event_count,
+                            duration_seconds,
+                            quality_score,
+                            notes,
+                            quality_warnings_json,
+                            processed_at,
+                            updated_at
+                        )
+                        VALUES (
+                            $test_id,
+                            $signature_hash,
+                            $status,
+                            $severity_label,
+                            $severity_reason,
+                            $feature_vector_json,
+                            $total_events,
+                            $core_event_count,
+                            $support_event_count,
+                            $noise_event_count,
+                            $duration_seconds,
+                            $quality_score,
+                            $notes,
+                            $quality_warnings_json,
+                            $processed_at,
+                            $updated_at
+                        );
+                        SELECT last_insert_rowid();
+                    ";
+
+                    cmdInsertSignature.Parameters.AddWithValue("$test_id", resultado.Signature.TestId);
+                    cmdInsertSignature.Parameters.AddWithValue("$signature_hash", resultado.Signature.SignatureHash);
+                    cmdInsertSignature.Parameters.AddWithValue("$status", resultado.Signature.Status.ToString());
+                    cmdInsertSignature.Parameters.AddWithValue("$severity_label", resultado.Signature.Severity.ToString());
+                    cmdInsertSignature.Parameters.AddWithValue("$severity_reason", string.IsNullOrWhiteSpace(resultado.Signature.SeverityReason) ? (object)DBNull.Value : resultado.Signature.SeverityReason);
+                    cmdInsertSignature.Parameters.AddWithValue("$feature_vector_json", featureJson);
+                    cmdInsertSignature.Parameters.AddWithValue("$total_events", resultado.Quality.TotalEvents);
+                    cmdInsertSignature.Parameters.AddWithValue("$core_event_count", resultado.Quality.CoreEvents);
+                    cmdInsertSignature.Parameters.AddWithValue("$support_event_count", resultado.Quality.SupportEvents);
+                    cmdInsertSignature.Parameters.AddWithValue("$noise_event_count", resultado.Quality.NoiseEvents);
+                    cmdInsertSignature.Parameters.AddWithValue("$duration_seconds", featureVector.TemporalSpanSeconds);
+                    cmdInsertSignature.Parameters.AddWithValue("$quality_score", resultado.Signature.QualityScore);
+                    cmdInsertSignature.Parameters.AddWithValue("$notes", string.IsNullOrWhiteSpace(resultado.Signature.Notes) ? (object)DBNull.Value : resultado.Signature.Notes);
+                    cmdInsertSignature.Parameters.AddWithValue("$quality_warnings_json", warningsJson);
+                    cmdInsertSignature.Parameters.AddWithValue("$processed_at", resultado.Signature.ProcessedAt.ToString("o"));
+                    cmdInsertSignature.Parameters.AddWithValue("$updated_at", nowIso);
+
+                    signatureId = Convert.ToInt32(cmdInsertSignature.ExecuteScalar());
+                }
+
+                foreach (var core in resultado.Segregation.CoreEvents)
+                {
+                    var metadataJson = JsonSerializer.Serialize(BuildCoreEventMetadata(core), _serializerOptions);
+                    using var cmdInsertCore = _conn.CreateCommand();
+                    cmdInsertCore.Transaction = tx;
+                    cmdInsertCore.CommandText = @"
+                        INSERT INTO normalized_core_events (
+                            signature_id,
+                            event_row_id,
+                            event_id,
+                            event_time,
+                            image,
+                            command_line,
+                            metadata_json
+                        )
+                        VALUES (
+                            $signature_id,
+                            $event_row_id,
+                            $event_id,
+                            $event_time,
+                            $image,
+                            $command_line,
+                            $metadata_json
+                        );
+                    ";
+                    cmdInsertCore.Parameters.AddWithValue("$signature_id", signatureId);
+                    cmdInsertCore.Parameters.AddWithValue("$event_row_id", core.EventRowId);
+                    cmdInsertCore.Parameters.AddWithValue("$event_id", core.EventId);
+                    var eventTime = core.UtcTime ?? core.CaptureTime;
+                    cmdInsertCore.Parameters.AddWithValue("$event_time", eventTime.HasValue ? eventTime.Value.ToString("o") : (object)DBNull.Value);
+                    cmdInsertCore.Parameters.AddWithValue("$image", core.Image ?? (object)DBNull.Value);
+                    cmdInsertCore.Parameters.AddWithValue("$command_line", core.CommandLine ?? (object)DBNull.Value);
+                    cmdInsertCore.Parameters.AddWithValue("$metadata_json", metadataJson);
+                    cmdInsertCore.ExecuteNonQuery();
+                }
+
+                foreach (var entry in resultado.SuggestedWhitelist)
+                {
+                    using var cmdInsertWhitelist = _conn.CreateCommand();
+                    cmdInsertWhitelist.Transaction = tx;
+                    cmdInsertWhitelist.CommandText = @"
+                        INSERT INTO normalized_whitelist_entries (
+                            signature_id,
+                            entry_type,
+                            value,
+                            reason,
+                            approved,
+                            auto_generated
+                        )
+                        VALUES (
+                            $signature_id,
+                            $entry_type,
+                            $value,
+                            $reason,
+                            $approved,
+                            $auto_generated
+                        );
+                    ";
+                    cmdInsertWhitelist.Parameters.AddWithValue("$signature_id", signatureId);
+                    cmdInsertWhitelist.Parameters.AddWithValue("$entry_type", entry.EntryType);
+                    cmdInsertWhitelist.Parameters.AddWithValue("$value", entry.Value);
+                    cmdInsertWhitelist.Parameters.AddWithValue("$reason", string.IsNullOrWhiteSpace(entry.Reason) ? (object)DBNull.Value : entry.Reason);
+                    cmdInsertWhitelist.Parameters.AddWithValue("$approved", entry.Approved ? 1 : 0);
+                    cmdInsertWhitelist.Parameters.AddWithValue("$auto_generated", entry.AutoApproved ? 1 : 0);
+                    cmdInsertWhitelist.ExecuteNonQuery();
+                }
+
+                foreach (var log in resultado.Logs)
+                {
+                    using var cmdInsertLog = _conn.CreateCommand();
+                    cmdInsertLog.Transaction = tx;
+                    cmdInsertLog.CommandText = @"
+                        INSERT INTO normalization_log (test_id, stage, level, message)
+                        VALUES ($test_id, $stage, $level, $message);
+                    ";
+                    cmdInsertLog.Parameters.AddWithValue("$test_id", resultado.Signature.TestId);
+                    cmdInsertLog.Parameters.AddWithValue("$stage", log.Stage);
+                    cmdInsertLog.Parameters.AddWithValue("$level", log.Level);
+                    cmdInsertLog.Parameters.AddWithValue("$message", log.Message);
+                    cmdInsertLog.ExecuteNonQuery();
+                }
+
+                using (var cmdUpdateTest = _conn.CreateCommand())
+                {
+                    cmdUpdateTest.Transaction = tx;
+                    cmdUpdateTest.CommandText = @"
+                        UPDATE atomic_tests
+                        SET normalized_at = $normalized_at,
+                            tarja = $tarja,
+                            tarja_reason = $tarja_reason,
+                            normalization_status = $status
+                        WHERE id = $id;
+                    ";
+                    cmdUpdateTest.Parameters.AddWithValue("$normalized_at", resultado.Signature.ProcessedAt.ToString("o"));
+                    cmdUpdateTest.Parameters.AddWithValue("$tarja", resultado.Signature.Severity.ToString());
+                    cmdUpdateTest.Parameters.AddWithValue("$tarja_reason", string.IsNullOrWhiteSpace(resultado.Signature.SeverityReason) ? (object)DBNull.Value : resultado.Signature.SeverityReason);
+                    cmdUpdateTest.Parameters.AddWithValue("$status", resultado.Signature.Status.ToString());
+                    cmdUpdateTest.Parameters.AddWithValue("$id", resultado.Signature.TestId);
+                    cmdUpdateTest.ExecuteNonQuery();
+                }
+
+                tx.Commit();
+            }
+            catch
+            {
+                tx.Rollback();
+                throw;
+            }
+        }
+
+        /// <summary>
         /// Exclui um teste catalogado e seus eventos associados
         /// </summary>
         /// <param name="testeId">ID do teste a excluir</param>
@@ -682,4 +1186,3 @@ namespace NavShieldTracer.Modules.Storage
         }
     }
 }
-

@@ -1,11 +1,8 @@
 using NavShieldTracer.Modules;
-using System;
-using System.Threading.Tasks;
-using System.IO;
 using System.Diagnostics;
-using System.Linq;
 using System.Text.Json;
 using NavShieldTracer.Modules.Storage;
+using NavShieldTracer.Modules.Heuristics.Normalization;
 
 /// <summary>
 /// Ponto de entrada principal para o aplicativo NavShieldTracer.
@@ -314,6 +311,37 @@ class Program
             return;
         }
 
+        // Verificar se já existem testes catalogados com este número
+        var testesExistentes = store.ListarTestesAtomicos()
+            .Where(t => t.Numero.Equals(numero, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(t => t.DataExecucao)
+            .ToList();
+
+        if (testesExistentes.Any())
+        {
+            Console.WriteLine($"\n[!] AVISO: Ja existe(m) {testesExistentes.Count} teste(s) catalogado(s) para {numero}:");
+            foreach (var t in testesExistentes.Take(3))
+            {
+                Console.WriteLine($"    - {t.Nome} ({t.DataExecucao:yyyy-MM-dd HH:mm}) - {t.TotalEventos} eventos");
+            }
+            if (testesExistentes.Count > 3)
+            {
+                Console.WriteLine($"    ... e mais {testesExistentes.Count - 3} amostras");
+            }
+            Console.WriteLine("\nCatalogar multiplas amostras do mesmo TTP pode enriquecer o baseline comportamental,");
+            Console.WriteLine("mas considere usar nomes distintos para identificar variantes (ex: 'Process Injection - CreateRemoteThread').");
+            Console.Write("\nDeseja catalogar outra amostra deste TTP? (S/N): ");
+
+            if (Console.ReadKey(true).Key != ConsoleKey.S)
+            {
+                Console.WriteLine("\n\nCatalogacao cancelada.");
+                Console.WriteLine("Pressione qualquer tecla para voltar ao menu...");
+                Console.ReadKey();
+                return;
+            }
+            Console.WriteLine("\n");
+        }
+
         Console.Write("Nome do teste (ex: Process Injection): ");
         string? nome = Console.ReadLine();
         if (string.IsNullOrWhiteSpace(nome))
@@ -363,6 +391,18 @@ class Program
         // Finalizar teste e sessão
         store.FinalizarTesteAtomico(testeId, totalEventos);
         store.CompleteSession(sessionId, stats);
+
+        try
+        {
+            var normalizationWorkflow = new CatalogNormalizationWorkflow(store);
+            normalizationWorkflow.Executar(testeId);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("\n[!] Falha durante a normalizacao automatica do catalogo.");
+            Console.WriteLine($"    Detalhes: {ex.Message}");
+            Console.WriteLine("    Consulte o log 'normalization_log' para investigar e repita via menu quando possivel.");
+        }
 
         Console.WriteLine($"\n✅ Catalogação finalizada! Teste '{numero}' salvo com {totalEventos} eventos.");
         Console.WriteLine("Pressione qualquer tecla para voltar ao menu...");
