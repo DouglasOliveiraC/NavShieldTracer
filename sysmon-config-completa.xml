@@ -1,138 +1,304 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Configuração Sysmon Completa para NavShieldTracer
-  
-  Esta configuração é otimizada para capturar todos os tipos de eventos
-  necessários para análise completa de comportamento de software.
-  
+  ╔═══════════════════════════════════════════════════════════════════════════╗
+  ║  Configuração Sysmon Otimizada para NavShieldTracer v2.0                 ║
+  ║  Focada em Técnicas MITRE ATT&CK e Atomic Red Team                       ║
+  ╚═══════════════════════════════════════════════════════════════════════════╝
+
+  MELHORIAS NESTA VERSÃO:
+  - Regras específicas para técnicas MITRE ATT&CK prioritárias
+  - Captura aprimorada de File Create (Event ID 11) com filtros inteligentes
+  - Captura completa de Registry Set (Event ID 13) para evasão e persistência
+  - Image Load (Event ID 7) focado em DLLs suspeitas (user32.dll, gdi32.dll, etc.)
+  - Exclusões inteligentes para reduzir ruído do sistema
+
   Para aplicar esta configuração:
-  1. Salve este arquivo como sysmon-config-completa.xml
-  2. Execute como administrador: sysmon -c sysmon-config-completa.xml
-  
-  ATENÇÃO: Esta configuração gera MUITOS logs. Use apenas para análise
-  específica e em ambientes controlados.
+  1. Execute como ADMINISTRADOR: sysmon64 -c sysmon-config-completa.xml
+  2. Verifique aplicação: Get-WinEvent -LogName "Microsoft-Windows-Sysmon/Operational" -MaxEvents 5
+
+  OTIMIZADO PARA: T1113, T1055, T1059.001, T1071.001, T1105, T1027, T1543.003, T1003.001
 -->
 <Sysmon schemaversion="4.70">
+
+  <!-- Hash Algorithms para assinaturas -->
+  <HashAlgorithms>SHA256,IMPHASH</HashAlgorithms>
+
   <EventFiltering>
-    
-    <!-- Event ID 1: Process Creation - Captura todos os processos -->
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 1: Process Creation - Captura processos críticos            -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <ProcessCreate onmatch="exclude">
-      <!-- Excluir apenas processos muito verbosos do sistema -->
+      <!-- Excluir processos do sistema que geram muito ruído -->
       <Image condition="is">C:\Windows\System32\conhost.exe</Image>
-      <ParentImage condition="is">C:\Windows\System32\backgroundTaskHost.exe</ParentImage>
+      <Image condition="is">C:\Windows\System32\backgroundTaskHost.exe</Image>
+      <Image condition="is">C:\Windows\System32\RuntimeBroker.exe</Image>
+      <Image condition="is">C:\Windows\System32\SearchIndexer.exe</Image>
+      <ParentImage condition="is">C:\Windows\System32\svchost.exe</ParentImage>
+      <ParentImage condition="is">C:\Windows\System32\RuntimeBroker.exe</ParentImage>
     </ProcessCreate>
 
-    <!-- Event ID 2: File Creation Time Changed - Captura mudanças de timestamp -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 2: File Creation Time Changed - Anti-forensics (T1070.006) -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <FileCreateTime onmatch="include">
-      <!-- Capturar todas as mudanças de timestamp -->
-      <TargetFilename condition="contains">.</TargetFilename>
+      <TargetFilename condition="begin with">C:\Users</TargetFilename>
+      <TargetFilename condition="begin with">C:\Temp</TargetFilename>
+      <TargetFilename condition="begin with">C:\ProgramData</TargetFilename>
     </FileCreateTime>
 
-    <!-- Event ID 3: Network Connection - Captura conexões de rede -->
-    <NetworkConnect onmatch="include">
-      <!-- Capturar todas as conexões de rede -->
-      <Initiated condition="is">true</Initiated>
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 3: Network Connection - C2 Communication (T1071)            -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <NetworkConnect onmatch="exclude">
+      <!-- Excluir processos do sistema que fazem conexões legítimas -->
+      <Image condition="is">C:\Windows\System32\svchost.exe</Image>
+      <Image condition="end with">\Microsoft\Edge\Application\msedge.exe</Image>
+      <Image condition="end with">\Google\Chrome\Application\chrome.exe</Image>
+      <DestinationIp condition="begin with">169.254.</DestinationIp>
+      <DestinationIp condition="begin with">fe80:</DestinationIp>
+      <DestinationPort condition="is">5353</DestinationPort> <!-- mDNS -->
     </NetworkConnect>
 
-    <!-- Event ID 5: Process Termination - Captura encerramento de processos -->
-    <ProcessTerminate onmatch="include">
-      <!-- Capturar todos os encerramentos -->
-      <Image condition="contains">.</Image>
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 5: Process Termination - Captura encerramentos suspeitos    -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <ProcessTerminate onmatch="exclude">
+      <Image condition="is">C:\Windows\System32\conhost.exe</Image>
+      <Image condition="is">C:\Windows\System32\backgroundTaskHost.exe</Image>
     </ProcessTerminate>
 
-    <!-- Event ID 6: Driver Load - Desabilitado para reduzir volume -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 6: Driver Load - Rootkits e Kernel Exploits (T1014)        -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <DriverLoad onmatch="exclude">
-      <Signature condition="contains">Microsoft</Signature>
+      <!-- Excluir apenas drivers assinados pela Microsoft -->
+      <Signature condition="is">Microsoft Windows</Signature>
+      <Signature condition="is">Microsoft Corporation</Signature>
     </DriverLoad>
 
-    <!-- Event ID 7: Image/DLL Load - Desabilitado para reduzir volume -->
-    <ImageLoad onmatch="exclude">
-      <Signed condition="is">true</Signed>
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 7: Image/DLL Load - DLLs Suspeitas para Screenshot/Injection -->
+    <!-- MELHORADO: Captura DLLs críticas para T1113, T1055, T1027             -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <ImageLoad onmatch="include">
+      <!-- DLLs usadas em Process Injection (T1055) -->
+      <ImageLoaded condition="end with">kernel32.dll</ImageLoaded>
+      <ImageLoaded condition="end with">ntdll.dll</ImageLoaded>
+
+      <!-- DLLs usadas em Screenshot Capture (T1113) -->
+      <ImageLoaded condition="end with">user32.dll</ImageLoaded>
+      <ImageLoaded condition="end with">gdi32.dll</ImageLoaded>
+      <ImageLoaded condition="end with">gdiplus.dll</ImageLoaded>
+
+      <!-- DLLs .NET para screenshot programático -->
+      <ImageLoaded condition="contains">System.Windows.Forms</ImageLoaded>
+      <ImageLoaded condition="contains">System.Drawing</ImageLoaded>
+
+      <!-- DLLs de rede para C2 (T1071) -->
+      <ImageLoaded condition="end with">wininet.dll</ImageLoaded>
+      <ImageLoaded condition="end with">winhttp.dll</ImageLoaded>
+      <ImageLoaded condition="end with">ws2_32.dll</ImageLoaded>
+
+      <!-- DLLs de criptografia para obfuscation (T1027) -->
+      <ImageLoaded condition="contains">bcrypt.dll</ImageLoaded>
+      <ImageLoaded condition="contains">crypt32.dll</ImageLoaded>
+
+      <!-- DLLs não assinadas (potencialmente maliciosas) -->
+      <Signed condition="is">false</Signed>
     </ImageLoad>
 
-    <!-- Event ID 8: Create Remote Thread - Captura criação de threads remotas -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 8: CreateRemoteThread - Process Injection (T1055)           -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <CreateRemoteThread onmatch="include">
-      <!-- Capturar todas as threads remotas -->
-      <SourceImage condition="contains">.</SourceImage>
+      <SourceImage condition="is not">C:\Windows\System32\svchost.exe</SourceImage>
+      <SourceImage condition="is not">C:\Windows\System32\wbem\WmiPrvSE.exe</SourceImage>
     </CreateRemoteThread>
 
-    <!-- Event ID 9: Raw Access Read - Captura acesso raw a disco -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 9: Raw Access Read - Volume Shadow Copy Deletion (T1490)    -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <RawAccessRead onmatch="include">
-      <!-- Capturar todos os acessos raw -->
-      <Device condition="contains">\</Device>
+      <Device condition="contains">\Device\HarddiskVolume</Device>
     </RawAccessRead>
 
-    <!-- Event ID 10: Process Access - Captura acesso entre processos -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 10: Process Access - Credential Dumping (T1003)             -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <ProcessAccess onmatch="include">
-      <!-- Capturar todos os acessos a processos -->
-      <SourceImage condition="contains">.</SourceImage>
+      <!-- Acesso ao LSASS (T1003.001) -->
+      <TargetImage condition="end with">lsass.exe</TargetImage>
+
+      <!-- Acesso suspeito a processos críticos -->
+      <TargetImage condition="end with">csrss.exe</TargetImage>
+      <TargetImage condition="end with">winlogon.exe</TargetImage>
+
+      <!-- Qualquer acesso com permissões de PROCESS_VM_WRITE -->
+      <GrantedAccess condition="contains">0x1F</GrantedAccess>
     </ProcessAccess>
 
-    <!-- Event ID 11: File Create - IMPORTANTE: Captura criação de arquivos -->
-    <FileCreate onmatch="include">
-      <!-- Capturar TODOS os arquivos criados -->
-      <TargetFilename condition="contains">.</TargetFilename>
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 11: File Create - CRÍTICO PARA T1113, T1105, T1027          -->
+    <!-- MELHORADO: Filtros específicos para reduzir ruído e capturar alvos   -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <FileCreate onmatch="exclude">
+      <!-- ESTRATÉGIA: Excluir locais benignos, capturar o resto -->
+
+      <!-- Excluir logs e caches do Windows -->
+      <TargetFilename condition="begin with">C:\Windows\System32\LogFiles\</TargetFilename>
+      <TargetFilename condition="begin with">C:\Windows\System32\winevt\</TargetFilename>
+      <TargetFilename condition="begin with">C:\Windows\Prefetch\</TargetFilename>
+      <TargetFilename condition="contains">\AppData\Local\Microsoft\Windows\</TargetFilename>
+      <TargetFilename condition="contains">\AppData\Local\Temp\Temp</TargetFilename>
+
+      <!-- Excluir logs de aplicativos conhecidos -->
+      <TargetFilename condition="contains">\AppData\Local\Microsoft\Edge\</TargetFilename>
+      <TargetFilename condition="contains">\AppData\Local\Google\Chrome\</TargetFilename>
+      <TargetFilename condition="contains">\AppData\Roaming\Code\</TargetFilename>
+
+      <!-- Excluir extensões benignas comuns -->
+      <TargetFilename condition="end with">.tmp</TargetFilename>
+      <TargetFilename condition="end with">.log</TargetFilename>
+      <TargetFilename condition="end with">.etl</TargetFilename>
+      <TargetFilename condition="end with">.regtrans-ms</TargetFilename>
     </FileCreate>
 
-    <!-- Event ID 12: Registry Event (Object create/delete) -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 12: Registry Object Create/Delete - Persistence (T1547)     -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <RegistryEvent onmatch="include">
-      <!-- Capturar todas as operações de registro -->
-      <TargetObject condition="contains">HKEY_</TargetObject>
+      <!-- Chaves de Run/RunOnce (persistência comum) -->
+      <TargetObject condition="contains">CurrentVersion\Run</TargetObject>
+      <TargetObject condition="contains">CurrentVersion\RunOnce</TargetObject>
+
+      <!-- Serviços do Windows (T1543.003) -->
+      <TargetObject condition="contains">CurrentControlSet\Services\</TargetObject>
+
+      <!-- Modificações de evasão (como visto no T1113) -->
+      <TargetObject condition="contains">WindowsAI</TargetObject>
+      <TargetObject condition="contains">DisableAIDataAnalysis</TargetObject>
+
+      <!-- Políticas de segurança -->
+      <TargetObject condition="contains">Policies\Microsoft\Windows\</TargetObject>
+      <TargetObject condition="contains">Windows Defender\</TargetObject>
+
+      <!-- WMI Persistence (T1546.003) -->
+      <TargetObject condition="contains">ROOT\subscription</TargetObject>
     </RegistryEvent>
 
-    <!-- Event ID 13: Registry Event (Value Set) -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 13: Registry Value Set - CRÍTICO PARA EVASÃO E PERSISTÊNCIA -->
+    <!-- MELHORADO: Captura modificações de registro suspeitas                -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <RegistryEvent onmatch="include">
-      <!-- Capturar todas as definições de valores -->
-      <TargetObject condition="contains">HKEY_</TargetObject>
+      <!-- MESMAS REGRAS DO EVENT ID 12 -->
+      <TargetObject condition="contains">CurrentVersion\Run</TargetObject>
+      <TargetObject condition="contains">CurrentVersion\RunOnce</TargetObject>
+      <TargetObject condition="contains">CurrentControlSet\Services\</TargetObject>
+      <TargetObject condition="contains">WindowsAI</TargetObject>
+      <TargetObject condition="contains">DisableAIDataAnalysis</TargetObject>
+      <TargetObject condition="contains">Policies\Microsoft\Windows\</TargetObject>
+      <TargetObject condition="contains">Windows Defender\</TargetObject>
+      <TargetObject condition="contains">ROOT\subscription</TargetObject>
+
+      <!-- Modificações de UAC (T1548.002) -->
+      <TargetObject condition="contains">EnableLUA</TargetObject>
+      <TargetObject condition="contains">ConsentPromptBehaviorAdmin</TargetObject>
+
+      <!-- Modificações de Firewall -->
+      <TargetObject condition="contains">FirewallPolicy</TargetObject>
     </RegistryEvent>
 
-    <!-- Event ID 14: Registry Event (Key and Value Rename) -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 14: Registry Object Rename - Evasão                         -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <RegistryEvent onmatch="include">
-      <!-- Capturar todas as renomeações -->
-      <TargetObject condition="contains">HKEY_</TargetObject>
+      <TargetObject condition="contains">CurrentVersion\Run</TargetObject>
+      <TargetObject condition="contains">CurrentControlSet\Services\</TargetObject>
     </RegistryEvent>
 
-    <!-- Event ID 15: File Create Stream Hash - Captura streams NTFS -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 15: FileCreateStreamHash - ADS (Alternate Data Streams)     -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <FileCreateStreamHash onmatch="include">
-      <!-- Capturar todos os streams -->
       <TargetFilename condition="contains">:</TargetFilename>
     </FileCreateStreamHash>
 
-    <!-- Event ID 17: Pipe Created - Captura criação de pipes -->
-    <PipeEvent onmatch="include">
-      <!-- Capturar todos os pipes -->
-      <PipeName condition="contains">\</PipeName>
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 17: Pipe Created - Named Pipes para C2 (T1090.001)         -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <PipeEvent onmatch="exclude">
+      <!-- Excluir pipes do sistema -->
+      <PipeName condition="begin with">\Device\NamedPipe\LOCAL\</PipeName>
+      <PipeName condition="begin with">\Device\NamedPipe\crashpad_</PipeName>
+      <PipeName condition="begin with">\Device\NamedPipe\PSHost</PipeName>
     </PipeEvent>
 
-    <!-- Event ID 18: Pipe Connected - Captura conexões a pipes -->
-    <PipeEvent onmatch="include">
-      <!-- Capturar todas as conexões -->
-      <PipeName condition="contains">\</PipeName>
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 18: Pipe Connected - Comunicação inter-processos            -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <PipeEvent onmatch="exclude">
+      <PipeName condition="begin with">\Device\NamedPipe\LOCAL\</PipeName>
+      <PipeName condition="begin with">\Device\NamedPipe\crashpad_</PipeName>
+      <PipeName condition="begin with">\Device\NamedPipe\PSHost</PipeName>
     </PipeEvent>
 
-    <!-- Event ID 19-21: WMI Events - Captura eventos WMI -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 19-21: WMI Events - Persistence (T1546.003)                 -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <WmiEvent onmatch="include">
-      <!-- Capturar todos os eventos WMI -->
-      <Operation condition="contains">.</Operation>
+      <Operation condition="is">Created</Operation>
+      <Operation condition="is">Modified</Operation>
     </WmiEvent>
 
-    <!-- Event ID 22: DNS Query - IMPORTANTE: Captura consultas DNS -->
-    <DnsQuery onmatch="include">
-      <!-- Capturar TODAS as consultas DNS -->
-      <QueryName condition="contains">.</QueryName>
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 22: DNS Query - C2 Discovery (T1071.004)                    -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <DnsQuery onmatch="exclude">
+      <!-- Excluir queries comuns do Windows -->
+      <QueryName condition="end with">.microsoft.com</QueryName>
+      <QueryName condition="end with">.windows.com</QueryName>
+      <QueryName condition="end with">.windowsupdate.com</QueryName>
+      <QueryName condition="end with">.bing.com</QueryName>
+      <QueryName condition="end with">.msftconnecttest.com</QueryName>
+      <QueryName condition="end with">.local</QueryName>
+      <Image condition="end with">\svchost.exe</Image>
     </DnsQuery>
 
-    <!-- Event ID 23: File Delete - IMPORTANTE: Captura exclusão de arquivos -->
-    <FileDelete onmatch="include">
-      <!-- Capturar TODOS os arquivos deletados -->
-      <TargetFilename condition="contains">.</TargetFilename>
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 23: File Delete - Anti-forensics (T1070.004)                -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <FileDelete onmatch="exclude">
+      <!-- Excluir exclusões benignas do sistema -->
+      <TargetFilename condition="begin with">C:\Windows\Temp\</TargetFilename>
+      <TargetFilename condition="begin with">C:\Windows\System32\config\TxR\</TargetFilename>
+      <TargetFilename condition="contains">\AppData\Local\Temp\</TargetFilename>
+      <TargetFilename condition="end with">.tmp</TargetFilename>
+      <Image condition="is">C:\Windows\System32\svchost.exe</Image>
     </FileDelete>
 
-    <!-- Event ID 24-26: Clipboard Events - Captura eventos de clipboard -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 24: ClipboardChange - Screenshot/Data Theft (T1113, T1115)  -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <ClipboardChange onmatch="include">
-      <!-- Capturar todas as mudanças no clipboard -->
-      <Image condition="contains">.</Image>
+      <!-- Capturar TODAS as mudanças de clipboard -->
+      <Image condition="is not">C:\Windows\System32\svchost.exe</Image>
     </ClipboardChange>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 25: Process Tampering - Process Hollowing (T1055.012)       -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <ProcessTampering onmatch="include">
+      <Image condition="contains">.</Image>
+    </ProcessTampering>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Event ID 26: File Delete Detected - Volume Shadow Copy (T1490)       -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <FileDeleteDetected onmatch="include">
+      <TargetFilename condition="contains">.</TargetFilename>
+    </FileDeleteDetected>
 
   </EventFiltering>
 </Sysmon>
