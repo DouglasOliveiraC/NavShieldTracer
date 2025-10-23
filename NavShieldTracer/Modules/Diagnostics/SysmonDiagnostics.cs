@@ -7,11 +7,35 @@ using System.ServiceProcess;
 
 namespace NavShieldTracer.Modules.Diagnostics;
 
+/// <summary>
+/// Classe utilitaria para diagnosticar a disponibilidade e configuracao do Sysmon no sistema.
+/// </summary>
+/// <remarks>
+/// Verifica tres aspectos principais:
+/// - Privilegios de administrador do usuario atual
+/// - Estado do servico do Sysmon (instalado e em execucao)
+/// - Disponibilidade e acessibilidade do canal de log do Windows Event Log
+/// </remarks>
 internal static class SysmonDiagnostics
 {
+    /// <summary>Nome padrao do canal de eventos operacional do Sysmon.</summary>
     private const string DefaultLogName = "Microsoft-Windows-Sysmon/Operational";
+
+    /// <summary>Nomes candidatos do servico Sysmon (x64 e x86).</summary>
     private static readonly string[] CandidateServiceNames = { "Sysmon64", "Sysmon" };
 
+    /// <summary>
+    /// Coleta status completo do Sysmon incluindo diagnostico e recomendacoes.
+    /// </summary>
+    /// <returns>Objeto SysmonStatus com estado detalhado e sugestoes de correcao</returns>
+    /// <remarks>
+    /// Este metodo:
+    /// - Verifica se o processo esta rodando como administrador
+    /// - Detecta presenca e estado do servico Sysmon
+    /// - Verifica acessibilidade do canal de log
+    /// - Gera lista de recomendacoes especificas para resolver problemas encontrados
+    /// - Determina se o sistema esta pronto para monitoramento (IsReady = true se tudo estiver OK)
+    /// </remarks>
     public static SysmonStatus GatherStatus()
     {
         var recommendations = new List<string>();
@@ -66,6 +90,15 @@ internal static class SysmonDiagnostics
         );
     }
 
+    /// <summary>
+    /// Detecta a presenca e estado de execucao do servico Sysmon.
+    /// </summary>
+    /// <returns>Tupla com (servico encontrado, servico em execucao, nome do servico)</returns>
+    /// <remarks>
+    /// Verifica os nomes de servico "Sysmon64" e "Sysmon" (nessa ordem).
+    /// Considera servico como rodando se Status for Running ou StartPending.
+    /// Retorna (false, false, null) se nenhum servico for encontrado ou se houver excecao.
+    /// </remarks>
     private static (bool serviceFound, bool serviceRunning, string? serviceName) DetectService()
     {
         try
@@ -90,6 +123,16 @@ internal static class SysmonDiagnostics
         return (false, false, null);
     }
 
+    /// <summary>
+    /// Detecta a existencia e acessibilidade do canal de log do Sysmon no Windows Event Log.
+    /// </summary>
+    /// <returns>Tupla com (log existe, nome do log, tem acesso, erro de acesso)</returns>
+    /// <remarks>
+    /// Busca primeiro pelo nome padrao "Microsoft-Windows-Sysmon/Operational".
+    /// Se nao encontrar, busca por qualquer canal com "Sysmon" no nome.
+    /// Tenta ler um evento para verificar permissoes de acesso.
+    /// Trata especificamente EventLogNotFoundException e UnauthorizedAccessException.
+    /// </remarks>
     private static (bool logExists, string? logName, bool hasAccess, string? accessError) DetectLogChannel()
     {
         string? resolvedName = null;
@@ -129,7 +172,20 @@ internal static class SysmonDiagnostics
     }
 }
 
-internal sealed record SysmonStatus(
+/// <summary>
+/// Representa o status completo do Sysmon no sistema e recomendacoes para correcao de problemas.
+/// </summary>
+/// <param name="IsReady">Indica se o sistema esta pronto para monitoramento (todos os pre-requisitos atendidos)</param>
+/// <param name="IsAdministrator">Indica se o processo esta rodando com privilegios de administrador</param>
+/// <param name="ServiceFound">Indica se o servico do Sysmon foi encontrado no sistema</param>
+/// <param name="ServiceRunning">Indica se o servico do Sysmon esta em execucao</param>
+/// <param name="LogExists">Indica se o canal de log do Sysmon existe no Windows Event Log</param>
+/// <param name="HasAccess">Indica se o processo consegue ler eventos do canal do Sysmon</param>
+/// <param name="ServiceName">Nome do servico Sysmon detectado (ex: "Sysmon64" ou "Sysmon")</param>
+/// <param name="LogName">Nome do canal de log detectado (ex: "Microsoft-Windows-Sysmon/Operational")</param>
+/// <param name="AccessError">Mensagem de erro de acesso se HasAccess for false</param>
+/// <param name="Recommendations">Lista de recomendacoes especificas para corrigir problemas encontrados</param>
+public sealed record SysmonStatus(
     bool IsReady,
     bool IsAdministrator,
     bool ServiceFound,

@@ -37,8 +37,13 @@ namespace NavShieldTracer.Modules.Models
     }
 
     /// <summary>
-    /// Contém os modelos de dados para os eventos do Sysmon que são monitorados pelo NavShieldTracer.
+    /// Representa um evento de criacao de processo do Sysmon (Event ID 1).
     /// </summary>
+    /// <remarks>
+    /// Este e o evento mais importante para rastreamento de atividade de processos.
+    /// Contem informacoes completas sobre processo criado, processo pai, linha de comando,
+    /// usuario, diretorio de trabalho, hashes do executavel e nivel de integridade.
+    /// </remarks>
     public class EventoProcessoCriado : EventoSysmonBase
     {
         /// <summary>

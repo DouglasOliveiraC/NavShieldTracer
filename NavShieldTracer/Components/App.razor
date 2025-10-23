@@ -1,0 +1,675 @@
+
+@using Spectre.Console
+@using System.Linq
+@using System.Threading.Tasks
+@inject NavShieldAppService AppService
+
+@if (!_initialized)
+{
+    <Markup Content="Inicializando NavShieldTracer..." Foreground="@Color.Cyan1" />
+}
+else
+{
+    @if (UseCompactLayout)
+    {
+        <Markup Content="NavShieldTracer" Foreground="@Color.Cyan1" Decoration="@Decoration.Bold" />
+    }
+    else
+    {
+        foreach (var line in _bannerLines)
+        {
+            <Markup Content="@line" Foreground="@Color.Cyan1" Decoration="@Decoration.Bold" />
+        }
+    }
+    <Newline />
+    <Markup Content="Console SecOps Toolkit v2.0" Foreground="@Color.White" />
+    <Markup Content="Real-time Sysmon Event Correlation · MITRE ATT&CK Behavioral Monitoring" Foreground="@Color.Grey" />
+    <Newline />
+
+    @if (UseCompactLayout)
+    {
+        <Rows>
+            <Panel Title="Sistema" BorderColor="@(_sysmonStatus.IsReady ? Color.Green : Color.Red)">
+                <Grid Columns="2">
+                    <Markup Content="Horario:" />
+                    <Markup Content='@_now.ToString("HH:mm:ss")' Foreground="@Color.Cyan1" />
+                    <Markup Content="Sessao:" />
+                    <Markup Content='@(_dashboard.HasActiveSession ? "Ativa" : "Inativa")'
+                            Foreground='@(_dashboard.HasActiveSession ? Color.Green : Color.Grey)' />
+                    <Markup Content="Canal:" />
+                    <Markup Content='@(_sysmonStatus.LogName ?? "N/A")' Foreground="@Color.Yellow" />
+                </Grid>
+            </Panel>
+
+            <Panel Title="Catalogo" BorderColor="@Color.Blue">
+                <Grid Columns="2">
+                    <Markup Content="Testes:" />
+                    <Markup Content='@_dashboard.TotalTestes.ToString()' Foreground="@Color.Cyan1" />
+                    <Markup Content="Eventos:" />
+                    <Markup Content='@_dashboard.TotalEventos.ToString()' Foreground="@Color.Cyan1" />
+                    <Markup Content="Ultimo:" />
+                    <Markup Content='@(_dashboard.UltimoTesteEm?.ToString("dd/MM HH:mm") ?? "--")' Foreground="@Color.Yellow" />
+                </Grid>
+            </Panel>
+
+            <Panel Title="Status" BorderColor="@Color.Magenta1">
+                <Grid Columns="2">
+                    <Markup Content="Sysmon:" />
+                    <Markup Content='@(_sysmonStatus.ServiceRunning ? "Online" : "Offline")'
+                            Foreground='@(_sysmonStatus.ServiceRunning ? Color.Green : Color.Red)' />
+                    <Markup Content="Acesso:" />
+                    <Markup Content='@(_sysmonStatus.HasAccess ? "OK" : "Negado")'
+                            Foreground='@(_sysmonStatus.HasAccess ? Color.Green : Color.Red)' />
+                    <Markup Content="Usuario:" />
+                    <Markup Content='@Environment.UserName' Foreground="@Color.Cyan1" />
+                </Grid>
+            </Panel>
+        </Rows>
+    }
+    else
+    {
+        <Columns>
+            <Panel Title="Sistema" BorderColor="@(_sysmonStatus.IsReady ? Color.Green : Color.Red)">
+                <Grid Columns="2">
+                    <Markup Content="Horario:" />
+                    <Markup Content='@_now.ToString("HH:mm:ss")' Foreground="@Color.Cyan1" />
+                    <Markup Content="Sessao:" />
+                    <Markup Content='@(_dashboard.HasActiveSession ? "Ativa" : "Inativa")'
+                            Foreground='@(_dashboard.HasActiveSession ? Color.Green : Color.Grey)' />
+                    <Markup Content="Canal:" />
+                    <Markup Content='@(_sysmonStatus.LogName ?? "N/A")' Foreground="@Color.Yellow" />
+                </Grid>
+            </Panel>
+
+            <Panel Title="Catalogo" BorderColor="@Color.Blue">
+                <Grid Columns="2">
+                    <Markup Content="Testes:" />
+                    <Markup Content='@_dashboard.TotalTestes.ToString()' Foreground="@Color.Cyan1" />
+                    <Markup Content="Eventos:" />
+                    <Markup Content='@_dashboard.TotalEventos.ToString()' Foreground="@Color.Cyan1" />
+                    <Markup Content="Ultimo:" />
+                    <Markup Content='@(_dashboard.UltimoTesteEm?.ToString("dd/MM HH:mm") ?? "--")' Foreground="@Color.Yellow" />
+                </Grid>
+            </Panel>
+
+            <Panel Title="Status" BorderColor="@Color.Magenta1">
+                <Grid Columns="2">
+                    <Markup Content="Sysmon:" />
+                    <Markup Content='@(_sysmonStatus.ServiceRunning ? "Online" : "Offline")'
+                            Foreground='@(_sysmonStatus.ServiceRunning ? Color.Green : Color.Red)' />
+                    <Markup Content="Acesso:" />
+                    <Markup Content='@(_sysmonStatus.HasAccess ? "OK" : "Negado")'
+                            Foreground='@(_sysmonStatus.HasAccess ? Color.Green : Color.Red)' />
+                    <Markup Content="Usuario:" />
+                    <Markup Content='@Environment.UserName' Foreground="@Color.Cyan1" />
+                </Grid>
+            </Panel>
+        </Columns>
+    }
+
+    <Newline />
+    <Markup Content="Navegacao" Decoration="@Decoration.Bold" />
+    @if (UseCompactLayout)
+    {
+        <Rows>
+            <TextButton Content="Dashboard"
+                        BackgroundColor='@(_activeTab == AppTab.Overview ? Color.DodgerBlue1 : Color.Grey19)'
+                        FocusedColor="@Color.Cyan1"
+                        OnClick='@(() => SetTab(AppTab.Overview))' />
+            <TextButton Content="Monitorar"
+                        BackgroundColor='@(_activeTab == AppTab.Monitor ? Color.DodgerBlue1 : Color.Grey19)'
+                        FocusedColor="@Color.Cyan1"
+                        OnClick='@(() => SetTab(AppTab.Monitor))' />
+            <TextButton Content="Catalogar"
+                        BackgroundColor='@(_activeTab == AppTab.Catalog ? Color.DodgerBlue1 : Color.Grey19)'
+                        FocusedColor="@Color.Cyan1"
+                        OnClick='@(() => SetTab(AppTab.Catalog))' />
+            <TextButton Content="Testes"
+                        BackgroundColor='@(_activeTab == AppTab.Tests ? Color.DodgerBlue1 : Color.Grey19)'
+                        FocusedColor="@Color.Cyan1"
+                        OnClick='@(() => SetTab(AppTab.Tests))' />
+            <TextButton Content="Gerenciar"
+                        BackgroundColor='@(_activeTab == AppTab.Manage ? Color.DodgerBlue1 : Color.Grey19)'
+                        FocusedColor="@Color.Cyan1"
+                        OnClick='@(() => SetTab(AppTab.Manage))' />
+        </Rows>
+    }
+    else
+    {
+        <Columns>
+            <TextButton Content="Dashboard"
+                        BackgroundColor='@(_activeTab == AppTab.Overview ? Color.DodgerBlue1 : Color.Grey19)'
+                        FocusedColor="@Color.Cyan1"
+                        OnClick='@(() => SetTab(AppTab.Overview))' />
+            <TextButton Content="Monitorar"
+                        BackgroundColor='@(_activeTab == AppTab.Monitor ? Color.DodgerBlue1 : Color.Grey19)'
+                        FocusedColor="@Color.Cyan1"
+                        OnClick='@(() => SetTab(AppTab.Monitor))' />
+            <TextButton Content="Catalogar"
+                        BackgroundColor='@(_activeTab == AppTab.Catalog ? Color.DodgerBlue1 : Color.Grey19)'
+                        FocusedColor="@Color.Cyan1"
+                        OnClick='@(() => SetTab(AppTab.Catalog))' />
+            <TextButton Content="Testes"
+                        BackgroundColor='@(_activeTab == AppTab.Tests ? Color.DodgerBlue1 : Color.Grey19)'
+                        FocusedColor="@Color.Cyan1"
+                        OnClick='@(() => SetTab(AppTab.Tests))' />
+            <TextButton Content="Gerenciar"
+                        BackgroundColor='@(_activeTab == AppTab.Manage ? Color.DodgerBlue1 : Color.Grey19)'
+                        FocusedColor="@Color.Cyan1"
+                        OnClick='@(() => SetTab(AppTab.Manage))' />
+        </Columns>
+    }
+
+    <Newline />
+
+    @switch (_activeTab)
+    {
+        case AppTab.Overview:
+        {
+            <Panel Title="Status do Sysmon" BorderColor="@Color.Green">
+                <Grid Columns="2">
+                    <Markup Content="Servico:" />
+                    <Markup Content='@(_sysmonStatus.ServiceRunning ? "Em execucao" : "Parado")'
+                            Foreground='@(_sysmonStatus.ServiceRunning ? Color.Green : Color.Red)' />
+                    <Markup Content="Acesso ao Log:" />
+                    <Markup Content='@(_sysmonStatus.HasAccess ? "OK" : "Sem permissao")'
+                            Foreground='@(_sysmonStatus.HasAccess ? Color.Green : Color.Red)' />
+                    <Markup Content="Status Geral:" />
+                    <Markup Content='@(_sysmonStatus.IsReady ? "Pronto" : "Atencao")'
+                            Foreground='@(_sysmonStatus.IsReady ? Color.Green : Color.Yellow)'
+                            Decoration='@(_sysmonStatus.IsReady ? Decoration.Bold : Decoration.None)' />
+                </Grid>
+                @if (_sysmonStatus.Recommendations.Count > 0)
+                {
+                    <Newline />
+                    <Markup Content="Recomendacoes:" Foreground="@Color.Yellow" Decoration="@Decoration.Bold" />
+                    @foreach (var rec in _sysmonStatus.Recommendations.Take(3))
+                    {
+                        <Markup Content='@Spectre.Console.Markup.Escape(rec)' Foreground="@Color.Yellow" />
+                    }
+                }
+                <Newline />
+                <Grid Columns="2">
+                    <Markup Content="Testes catalogados:" />
+                    <Markup Content='@_dashboard.TotalTestes.ToString()' Foreground="@Color.Cyan1" />
+                    <Markup Content="Eventos armazenados:" />
+                    <Markup Content='@_dashboard.TotalEventos.ToString()' Foreground="@Color.Cyan1" />
+                    <Markup Content="Banco de dados:" />
+                    <Markup Content='@Spectre.Console.Markup.Escape(_dashboard.DatabasePath)' Foreground="@Color.Grey" />
+                </Grid>
+            </Panel>
+            break;
+        }
+
+        case AppTab.Monitor:
+        {
+            <Panel Title="Monitoramento em Tempo Real" BorderColor="@Color.Cyan1">
+                <Markup Content="Digite o nome do executavel para monitorar:" />
+                <TextInput @bind-Value="_monitorTarget" Placeholder="exemplo: chrome.exe" />
+                <Newline />
+                <Columns>
+                    <TextButton Content="Iniciar"
+                                BackgroundColor="@Color.Green"
+                                FocusedColor="@Color.Green3"
+                                OnClick="@StartMonitorAsync" />
+                    <TextButton Content="Parar"
+                                BackgroundColor="@Color.Red"
+                                FocusedColor="@Color.Red3"
+                                OnClick="@StopMonitorAsync" />
+                </Columns>
+                @if (!string.IsNullOrEmpty(_monitorError))
+                {
+                    <Newline />
+                    <Markup Content="@_monitorError" Foreground="@Color.Red" />
+                }
+                @if (_activeSession is not null)
+                {
+                    <Newline />
+                    <Grid Columns="2">
+                        <Markup Content="Monitorando:" />
+                        <Markup Content='@_activeSession.TargetExecutable' Foreground="@Color.Green" />
+                        <Markup Content="Eventos capturados:" />
+                        <Markup Content='@_activeSession.TotalEventos.ToString()' Foreground="@Color.Cyan1" />
+                        <Markup Content="Processos ativos:" />
+                        <Markup Content='@_activeSession.Statistics.ProcessosAtivos.ToString()' Foreground="@Color.Yellow" />
+                        <Markup Content="Processos encerrados:" />
+                        <Markup Content='@_activeSession.Statistics.ProcessosEncerrados.ToString()' Foreground="@Color.Yellow" />
+                        <Markup Content="Tempo medio encerrados:" />
+                        <Markup Content='@(_activeSession.Statistics.TempoMedioDeVidaEncerrados?.ToString("hh\\:mm\\:ss") ?? "--")' />
+                        <Markup Content="Inicio da sessao:" />
+                        <Markup Content='@_activeSession.StartedAt.ToString("dd/MM HH:mm:ss")' Foreground="@Color.Grey" />
+                    </Grid>
+                    @if (_activeSession.Statistics.ProcessosAtivosDetalhados.Count > 0)
+                    {
+                        <Newline />
+                        <SpectreTable ShowHeaders="true" Expand="true">
+                            <SpectreTHead>
+                                <SpectreTR>
+                                    <SpectreTH><Markup Content="PID" /></SpectreTH>
+                                    <SpectreTH><Markup Content="Imagem" /></SpectreTH>
+                                    <SpectreTH><Markup Content="Inicio" /></SpectreTH>
+                                    <SpectreTH><Markup Content="Duracao" /></SpectreTH>
+                                </SpectreTR>
+                            </SpectreTHead>
+                            <SpectreTBody>
+                                @foreach (var proc in _activeSession.Statistics.ProcessosAtivosDetalhados)
+                                {
+                                    <SpectreTR>
+                                        <SpectreTD><Markup Content='@proc.PID.ToString()' Foreground="@Color.Yellow" /></SpectreTD>
+                                        <SpectreTD><Markup Content='@Spectre.Console.Markup.Escape(proc.Imagem)' /></SpectreTD>
+                                        <SpectreTD><Markup Content='@(proc.IniciadoEm?.ToString("HH:mm:ss") ?? "--")' /></SpectreTD>
+                                        <SpectreTD><Markup Content='@(proc.DuracaoAtual?.ToString("hh\\:mm\\:ss") ?? "--")' /></SpectreTD>
+                                    </SpectreTR>
+                                }
+                            </SpectreTBody>
+                        </SpectreTable>
+                    }
+                    @if (_activeSession.Logs.Count > 0)
+                    {
+                        <Newline />
+                        <Markup Content="Logs recentes" Decoration="@Decoration.Bold" />
+                        <SpectreTable ShowHeaders="false" Expand="true">
+                            @foreach (var log in _activeSession.Logs.Skip(Math.Max(0, _activeSession.Logs.Count - 10)))
+                            {
+                                <SpectreTR>
+                                    <SpectreTD><Markup Content='@Spectre.Console.Markup.Escape(log)' Foreground="@Color.Grey" /></SpectreTD>
+                                </SpectreTR>
+                            }
+                        </SpectreTable>
+                    }
+                }
+            </Panel>
+            break;
+        }
+
+        case AppTab.Catalog:
+        {
+            <Panel Title="Catalogar Teste Atomico" BorderColor="@Color.Yellow">
+                <Markup Content="Preencha os dados do teste MITRE ATT&CK:" />
+                <TextInput Label="Numero (ex: T1055)" @bind-Value="_catalogNumero" />
+                <TextInput Label="Nome" @bind-Value="_catalogNome" />
+                <TextInput Label="Descricao" @bind-Value="_catalogDescricao" />
+                <TextInput Label="Executavel alvo" @bind-Value="_catalogTarget" Placeholder="teste.exe" />
+                <Newline />
+                <Columns>
+                    <TextButton Content="Iniciar Catalogacao"
+                                BackgroundColor="@Color.Green"
+                                FocusedColor="@Color.Green3"
+                                OnClick="@StartCatalogAsync" />
+                    <TextButton Content="Limpar"
+                                BackgroundColor="@Color.Grey37"
+                                FocusedColor="@Color.Grey70"
+                                OnClick="@ClearCatalogForm" />
+                </Columns>
+                @if (!string.IsNullOrEmpty(_catalogError))
+                {
+                    <Newline />
+                    <Markup Content="@_catalogError" Foreground="@Color.Red" />
+                }
+            </Panel>
+            break;
+        }
+
+        case AppTab.Tests:
+        {
+            <Panel Title="Testes Catalogados" BorderColor="@Color.Blue">
+                <Grid Columns="2">
+                    <Markup Content="Total de testes:" />
+                    <Markup Content='@_testes.Count.ToString()' Foreground="@Color.Cyan1" />
+                </Grid>
+                <Newline />
+                @if (_testes.Count == 0)
+                {
+                    <Markup Content="Nenhum teste catalogado ainda." Foreground="@Color.Grey" />
+                }
+                else
+                {
+                    <SpectreTable ShowHeaders="true" Expand="true">
+                        <SpectreTHead>
+                            <SpectreTR>
+                                <SpectreTH><Markup Content="ID" /></SpectreTH>
+                                <SpectreTH><Markup Content="Numero" /></SpectreTH>
+                                <SpectreTH><Markup Content="Nome" /></SpectreTH>
+                                <SpectreTH><Markup Content="Execucao" /></SpectreTH>
+                                <SpectreTH><Markup Content="Eventos" /></SpectreTH>
+                            </SpectreTR>
+                        </SpectreTHead>
+                        <SpectreTBody>
+                            @foreach (var teste in _testes.Take(10))
+                            {
+                                <SpectreTR>
+                                    <SpectreTD><Markup Content='@teste.Id.ToString()' Foreground="@Color.Cyan1" /></SpectreTD>
+                                    <SpectreTD><Markup Content='@Spectre.Console.Markup.Escape(teste.Numero)' Foreground="@Color.Yellow" /></SpectreTD>
+                                    <SpectreTD><Markup Content='@Spectre.Console.Markup.Escape(teste.Nome)' /></SpectreTD>
+                                    <SpectreTD><Markup Content='@teste.DataExecucao.ToString("dd/MM HH:mm")' Foreground="@Color.Grey" /></SpectreTD>
+                                    <SpectreTD><Markup Content='@teste.TotalEventos.ToString()' Foreground="@Color.Cyan1" /></SpectreTD>
+                                </SpectreTR>
+                            }
+                        </SpectreTBody>
+                    </SpectreTable>
+                }
+                <Newline />
+                <TextInput Label="ID do teste para exportar" @bind-Value="_testsIdInput" />
+                <TextButton Content="Exportar JSON"
+                            BackgroundColor="@Color.Blue"
+                            FocusedColor="@Color.Blue3"
+                            OnClick="@ExportSelectedTesteAsync" />
+                @if (!string.IsNullOrEmpty(_exportMessage))
+                {
+                    <Newline />
+                    <Markup Content="@_exportMessage" Foreground='@ResolveExportColor(_exportMessage)' />
+                }
+            </Panel>
+            break;
+        }
+
+        case AppTab.Manage:
+        {
+            <Panel Title="Gerenciar Testes" BorderColor="@Color.Orange3">
+                <Markup Content="Carregue um teste para editar:" />
+                <TextInput Label="ID do teste" @bind-Value="_manageIdInput" />
+                <TextButton Content="Carregar"
+                            BackgroundColor="@Color.Grey37"
+                            FocusedColor="@Color.Grey70"
+                            OnClick="@LoadManageTesteAsync" />
+                @if (_manageTeste is not null)
+                {
+                    <Newline />
+                    <TextInput Label="Numero" @bind-Value="_manageNumero" />
+                    <TextInput Label="Nome" @bind-Value="_manageNome" />
+                    <TextInput Label="Descricao" @bind-Value="_manageDescricao" />
+                    <Newline />
+                    <Columns>
+                        <TextButton Content="Salvar"
+                                    BackgroundColor="@Color.Green"
+                                    FocusedColor="@Color.Green3"
+                                    OnClick="@SaveManageTesteAsync" />
+                        <TextButton Content="Excluir"
+                                    BackgroundColor="@Color.Red"
+                                    FocusedColor="@Color.Red3"
+                                    OnClick="@DeleteManageTesteAsync" />
+                    </Columns>
+                }
+                @if (!string.IsNullOrEmpty(_manageMessage))
+                {
+                    <Newline />
+                    <Markup Content="@_manageMessage" Foreground='@ResolveManageColor(_manageMessage)' />
+                }
+            </Panel>
+            break;
+        }
+    }
+
+    <Newline />
+    <Markup Content="Use TAB para navegar | ENTER para selecionar" Foreground="@Color.Grey" />
+}
+
+@code {
+    private enum AppTab { Overview, Monitor, Catalog, Tests, Manage }
+
+    private static readonly string[] _bannerLines =
+    {
+        "███╗   ██╗█████╗ ██╗   ██╗███████╗██╗  ██╗██╗███████╗██╗     ██████╗",
+        "████╗  ██║██╔══██╗██║   ██║██╔════╝██║  ██║██║██╔════╝██║     ██╔══██╗",
+        "██╔██╗ ██║███████║██║   ██║███████╗███████║██║█████╗  ██║     ██║  ██║",
+        "██║╚██╗██║██╔══██║╚██╗ ██╔╝╚════██║██╔══██║██║██╔══╝  ██║     ██║  ██║",
+        "██║ ╚████║██║  ██║ ╚████╔╝ ███████║██║  ██║██║███████╗███████╗██████╔╝",
+        "╚═╝  ╚═══╝╚═╝  ╚═╝  ╚═══╝ ╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚═════╝ "
+    };
+
+    private DateTime _now = DateTime.Now;
+    private DashboardSnapshot _dashboard = null!;
+    private SysmonStatus _sysmonStatus = null!;
+    private AppTab _activeTab = AppTab.Overview;
+    private bool _initialized;
+    private CancellationTokenSource? _polling;
+    // Monitor tab
+    private MonitoringSessionSnapshot? _activeSession;
+    private string _monitorTarget = "";
+    private string? _monitorError;
+
+    // Catalog tab
+    private string _catalogNumero = "";
+    private string _catalogNome = "";
+    private string _catalogDescricao = "";
+    private string _catalogTarget = "teste.exe";
+    private string? _catalogError;
+
+    // Tests tab
+    private IReadOnlyList<TesteAtomico> _testes = Array.Empty<TesteAtomico>();
+    private string _testsIdInput = "";
+    private string? _exportMessage;
+
+    // Manage tab
+    private string _manageIdInput = "";
+    private TesteAtomico? _manageTeste;
+    private string? _manageNumero;
+    private string? _manageNome;
+    private string? _manageDescricao;
+    private string? _manageMessage;
+
+    private bool UseCompactLayout => Console.WindowWidth < 110;
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshDashboardAsync().ConfigureAwait(false);
+        _initialized = true;
+        StartPolling();
+    }
+
+    public void Dispose()
+    {
+        _polling?.Cancel();
+        _polling?.Dispose();
+    }
+
+    private async Task RefreshDashboardAsync()
+    {
+        _sysmonStatus = await AppService.RefreshSysmonStatusAsync().ConfigureAwait(false);
+        _dashboard = AppService.GetDashboardSnapshot();
+    }
+
+    private void SetTab(AppTab tab)
+    {
+        _activeTab = tab;
+        if (tab == AppTab.Tests || tab == AppTab.Manage)
+        {
+            _testes = AppService.ListarTestes();
+        }
+    }
+
+    private void StartPolling()
+    {
+        _polling?.Cancel();
+        _polling = new CancellationTokenSource();
+        var token = _polling.Token;
+        _ = Task.Run(async () =>
+        {
+            var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+            try
+            {
+                while (await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
+                {
+                    _now = DateTime.Now;
+                    _activeSession = AppService.GetActiveSessionSnapshot();
+                    await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) { }
+        }, token);
+    }
+
+    private async Task StartMonitorAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_monitorTarget))
+        {
+            _monitorError = "Informe o nome do executavel.";
+            return;
+        }
+
+        try
+        {
+            _monitorError = null;
+            AppService.StartMonitoring(_monitorTarget.Trim());
+            _activeSession = AppService.GetActiveSessionSnapshot();
+            await RefreshDashboardAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _monitorError = ex.Message;
+        }
+    }
+
+    private async Task StopMonitorAsync()
+    {
+        try
+        {
+            await AppService.StopActiveSessionAsync().ConfigureAwait(false);
+            _activeSession = null;
+            await RefreshDashboardAsync().ConfigureAwait(false);
+            _testes = AppService.ListarTestes();
+        }
+        catch (Exception ex)
+        {
+            _monitorError = ex.Message;
+        }
+    }
+
+    private async Task StartCatalogAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_catalogNumero) || string.IsNullOrWhiteSpace(_catalogNome))
+        {
+            _catalogError = "Informe numero e nome do teste.";
+            return;
+        }
+
+        try
+        {
+            _catalogError = null;
+            var novo = new NovoTesteAtomico(_catalogNumero.Trim(), _catalogNome.Trim(), _catalogDescricao?.Trim() ?? string.Empty);
+            var alvo = string.IsNullOrWhiteSpace(_catalogTarget) ? "teste.exe" : _catalogTarget.Trim();
+            AppService.StartCatalog(novo, alvo);
+            _activeSession = AppService.GetActiveSessionSnapshot();
+            await RefreshDashboardAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _catalogError = ex.Message;
+        }
+    }
+
+    private void ClearCatalogForm()
+    {
+        _catalogNumero = "";
+        _catalogNome = "";
+        _catalogDescricao = "";
+        _catalogTarget = "teste.exe";
+        _catalogError = null;
+    }
+
+    private async Task ExportSelectedTesteAsync()
+    {
+        if (!int.TryParse(_testsIdInput, out var id))
+        {
+            _exportMessage = "ID invalido.";
+            return;
+        }
+
+        try
+        {
+            var path = await AppService.ExportarTesteAsync(id).ConfigureAwait(false);
+            _exportMessage = $"Exportado para: {path}";
+        }
+        catch (Exception ex)
+        {
+            _exportMessage = $"Erro: {ex.Message}";
+        }
+    }
+
+    private async Task LoadManageTesteAsync()
+    {
+        if (!int.TryParse(_manageIdInput, out var id))
+        {
+            _manageMessage = "ID invalido.";
+            return;
+        }
+
+        var teste = AppService.ListarTestes().FirstOrDefault(t => t.Id == id);
+        if (teste is null)
+        {
+            _manageMessage = "Teste nao encontrado.";
+            _manageTeste = null;
+            return;
+        }
+
+        _manageTeste = teste;
+        _manageNumero = teste.Numero;
+        _manageNome = teste.Nome;
+        _manageDescricao = teste.Descricao;
+        _manageMessage = null;
+        await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+    }
+
+    private async Task SaveManageTesteAsync()
+    {
+        if (_manageTeste is null)
+        {
+            _manageMessage = "Carregue um teste primeiro.";
+            return;
+        }
+
+        var ok = AppService.AtualizarTeste(_manageTeste.Id, _manageNumero, _manageNome, _manageDescricao);
+        _manageMessage = ok ? "Salvo com sucesso!" : "Falha ao salvar.";
+        if (ok)
+        {
+            _testes = AppService.ListarTestes();
+        }
+        await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+    }
+
+    private async Task DeleteManageTesteAsync()
+    {
+        if (_manageTeste is null)
+        {
+            _manageMessage = "Carregue um teste primeiro.";
+            return;
+        }
+
+        var ok = AppService.ExcluirTeste(_manageTeste.Id);
+        _manageMessage = ok ? "Teste excluido!" : "Falha ao excluir.";
+        if (ok)
+        {
+            _manageTeste = null;
+            _manageNumero = null;
+            _manageNome = null;
+            _manageDescricao = null;
+            _testes = AppService.ListarTestes();
+        }
+        await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+    }
+
+    private static Color ResolveExportColor(string message)
+        => message.StartsWith("Erro:", StringComparison.OrdinalIgnoreCase) ? Color.Red : Color.Green;
+
+    private static Color ResolveManageColor(string message)
+    {
+        if (message.Contains("sucesso", StringComparison.OrdinalIgnoreCase) || message.Contains("excluido", StringComparison.OrdinalIgnoreCase))
+        {
+            return Color.Green;
+        }
+
+        if (message.Contains("falha", StringComparison.OrdinalIgnoreCase) || message.Contains("nao", StringComparison.OrdinalIgnoreCase))
+        {
+            return Color.Red;
+        }
+
+        return Color.Yellow;
+    }
+}
+
+
+
+
+
+
+
+

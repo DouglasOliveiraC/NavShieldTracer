@@ -45,10 +45,23 @@ namespace NavShieldTracer.Modules.Monitoring
         /// Nome padrão do canal de eventos operacional do Sysmon.
         /// </summary>
         public const string DefaultLogName = "Microsoft-Windows-Sysmon/Operational";
+
+        /// <summary>Rastreador de atividade de processos que recebe os eventos parseados.</summary>
         private readonly ProcessActivityTracker _tracker;
+
+        /// <summary>Nome do canal do Event Log a ser monitorado.</summary>
         private readonly string _logName;
+
+        /// <summary>Funcao de logging configuravel para mensagens de diagnostico.</summary>
+        private readonly Action<string> _logger = _ => { };
+
+        /// <summary>Observador de eventos em tempo real do Windows Event Log.</summary>
         private EventLogWatcher? _watcher;
+
+        /// <summary>Token de cancelamento para interromper o processamento de eventos historicos.</summary>
         private CancellationTokenSource? _cancellationTokenSource;
+
+        /// <summary>Contador sequencial atomico para ordenacao de eventos capturados.</summary>
         private long _sequenceNumber = 0;
 
         /// <summary>
@@ -56,12 +69,14 @@ namespace NavShieldTracer.Modules.Monitoring
         /// </summary>
         /// <param name="tracker">Instância de <see cref="ProcessActivityTracker"/> que receberá os eventos processados.</param>
         /// <param name="logName">Nome do canal do Sysmon a ser monitorado. Quando nulo, usa <see cref="DefaultLogName"/>.</param>
-        public SysmonEventMonitor(ProcessActivityTracker tracker, string? logName = null)
+        /// <param name="logger">Função opcional de logging para mensagens de diagnóstico. Quando nula, usa implementação padrão que não faz nada.</param>
+        public SysmonEventMonitor(ProcessActivityTracker tracker, string? logName = null, Action<string>? logger = null)
         {
             _tracker = tracker;
             _logName = string.IsNullOrWhiteSpace(logName)
                 ? DefaultLogName
                 : logName;
+            _logger = logger ?? _logger;
         }
 
         /// <summary>
@@ -115,7 +130,7 @@ namespace NavShieldTracer.Modules.Monitoring
         {
             try
             {
-                Console.WriteLine("🔍 Analisando configuração do Sysmon...");
+                _logger("🔍 Analisando configuração do Sysmon...");
                 
                 // Analisa os últimos 100 eventos para ver que tipos estão sendo gerados
                 var query = new EventLogQuery(_logName, PathType.LogName, "*[System[Provider[@Name='Microsoft-Windows-Sysmon']]]");
@@ -139,15 +154,15 @@ namespace NavShieldTracer.Modules.Monitoring
                 
                 if (totalEvents == 0)
                 {
-                    Console.WriteLine("⚠️ Nenhum evento Sysmon encontrado nos logs recentes.");
+                    _logger("⚠️ Nenhum evento Sysmon encontrado nos logs recentes.");
                     return;
                 }
                 
-                Console.WriteLine($"📊 Análise dos últimos {totalEvents} eventos Sysmon:");
+                _logger($"📊 Análise dos últimos {totalEvents} eventos Sysmon:");
                 foreach (var kvp in eventCounts.OrderByDescending(x => x.Value))
                 {
                     var eventName = GetEventName(kvp.Key);
-                    Console.WriteLine($"   Event ID {kvp.Key} ({eventName}): {kvp.Value} eventos");
+                    _logger($"   Event ID {kvp.Key} ({eventName}): {kvp.Value} eventos");
                 }
                 
                 // Verificar eventos importantes que podem estar faltando
@@ -164,25 +179,25 @@ namespace NavShieldTracer.Modules.Monitoring
                 var missingEvents = importantEvents.Where(e => !eventCounts.ContainsKey(e.Key)).ToList();
                 if (missingEvents.Any())
                 {
-                    Console.WriteLine("\n⚠️ Eventos importantes não detectados recentemente:");
+                    _logger("\n⚠️ Eventos importantes não detectados recentemente:");
                     foreach (var missing in missingEvents)
                     {
-                        Console.WriteLine($"   Event ID {missing.Key} ({missing.Value})");
+                        _logger($"   Event ID {missing.Key} ({missing.Value})");
                     }
-                    Console.WriteLine("\n💡 Para capturar mais eventos, considere configurar o Sysmon com:");
-                    Console.WriteLine("   - Configuração mais permissiva para FileCreate (Event ID 11)");
-                    Console.WriteLine("   - Habilitação de eventos de Registry (Event IDs 12-14)");
-                    Console.WriteLine("   - Habilitação de eventos DNS (Event ID 22)");
-                    Console.WriteLine("   - Habilitação de eventos FileDelete (Event ID 23)");
+                    _logger("\n💡 Para capturar mais eventos, considere configurar o Sysmon com:");
+                    _logger("   - Configuração mais permissiva para FileCreate (Event ID 11)");
+                    _logger("   - Habilitação de eventos de Registry (Event IDs 12-14)");
+                    _logger("   - Habilitação de eventos DNS (Event ID 22)");
+                    _logger("   - Habilitação de eventos FileDelete (Event ID 23)");
                 }
                 else
                 {
-                    Console.WriteLine("\n✅ Configuração do Sysmon parece abrangente para análise completa.");
+                    _logger("\n✅ Configuração do Sysmon parece abrangente para análise completa.");
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"⚠️ Não foi possível analisar configuração do Sysmon: {ex.Message}");
+                _logger($"⚠️ Não foi possível analisar configuração do Sysmon: {ex.Message}");
             }
         }
 
@@ -265,7 +280,7 @@ namespace NavShieldTracer.Modules.Monitoring
             catch (Exception ex)
             {
                 // Erros no preload são registrados mas não impedem o monitoramento
-                Console.WriteLine($"⚠️ Aviso: Erro ao pré-carregar eventos históricos: {ex.Message}");
+                _logger($"⚠️ Aviso: Erro ao pré-carregar eventos históricos: {ex.Message}");
             }
         }
 
@@ -286,17 +301,17 @@ namespace NavShieldTracer.Modules.Monitoring
             catch (Exception ex)
             {
                 // Erros de parsing são registrados para debug mas não interrompem o monitoramento
-                Console.WriteLine($"⚠️ Aviso: Erro ao processar evento {eventRecord.Id} (Record ID: {eventRecord.RecordId}): {ex.Message}");
+                _logger($"⚠️ Aviso: Erro ao processar evento {eventRecord.Id} (Record ID: {eventRecord.RecordId}): {ex.Message}");
                 
                 // Em modo debug, mostra o XML do evento problemático
                 #if DEBUG
                 try
                 {
-                    Console.WriteLine($"XML do evento: {eventRecord.ToXml()}");
+                    _logger($"XML do evento: {eventRecord.ToXml()}");
                 }
                 catch
                 {
-                    Console.WriteLine("Não foi possível obter XML do evento.");
+                    _logger("Não foi possível obter XML do evento.");
                 }
                 #endif
             }
@@ -660,3 +675,9 @@ namespace NavShieldTracer.Modules.Monitoring
         }
     }
 }
+
+
+
+
+
+

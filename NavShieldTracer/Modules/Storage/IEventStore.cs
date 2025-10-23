@@ -22,8 +22,16 @@ namespace NavShieldTracer.Modules.Storage
     );
 
     /// <summary>
-    /// Interface para armazenamento de eventos de monitoramento
+    /// Interface para armazenamento persistente de eventos do Sysmon e gerenciamento de testes atomicos catalogados.
     /// </summary>
+    /// <remarks>
+    /// Define o contrato para:
+    /// - Gerenciamento de sessoes de monitoramento (Begin/Complete)
+    /// - Persistencia de eventos do Sysmon
+    /// - Catalogacao de testes atomicos do MITRE ATT&amp;CK
+    /// - Exportacao e consulta de dados capturados
+    /// Implementacoes devem ser thread-safe para insercao concorrente de eventos.
+    /// </remarks>
     public interface IEventStore : IDisposable
     {
         /// <summary>

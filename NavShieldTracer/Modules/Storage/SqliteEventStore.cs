@@ -13,12 +13,19 @@ using NavShieldTracer.Modules.Heuristics.Engine;
 namespace NavShieldTracer.Modules.Storage
 {
     /// <summary>
-    /// Implementação de armazenamento de eventos usando SQLite
+    /// Implementacao de armazenamento de eventos do Sysmon usando banco de dados SQLite.
+    /// Gerencia persistencia estruturada de eventos, sessoes de monitoramento, testes atomicos catalogados,
+    /// assinaturas normalizadas e snapshots de similaridade para analise comportamental.
     /// </summary>
     public class SqliteEventStore : IEventStore
     {
+        /// <summary>Conexao ativa com o banco de dados SQLite.</summary>
         private readonly SqliteConnection _conn;
+
+        /// <summary>Indica se o objeto foi descartado pelo Dispose.</summary>
         private bool _disposed;
+
+        /// <summary>Opcoes de serializacao JSON para campos estruturados (camelCase, compacto).</summary>
         private static readonly JsonSerializerOptions _serializerOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -30,9 +37,16 @@ namespace NavShieldTracer.Modules.Storage
         public string DatabasePath { get; }
 
         /// <summary>
-        /// Inicializa uma nova instância do armazenamento SQLite
+        /// Inicializa uma nova instancia do armazenamento SQLite com schema completo.
         /// </summary>
-        /// <param name="databasePath">Caminho opcional para o banco de dados</param>
+        /// <param name="databasePath">Caminho opcional para o banco de dados. Se nulo, cria em Logs/navshieldtracer.sqlite</param>
+        /// <remarks>
+        /// Este construtor:
+        /// - Cria o diretorio Logs se nao existir
+        /// - Abre conexao SQLite com modo ReadWriteCreate e cache compartilhado
+        /// - Aplica pragmas de otimizacao (WAL journal, foreign keys, cache de 200MB)
+        /// - Cria schema completo incluindo tabelas de eventos, sessoes, testes atomicos, assinaturas normalizadas e alertas
+        /// </remarks>
         public SqliteEventStore(string? databasePath = null)
         {
             // Base de logs na pasta da solução, similar ao MonitorLogger
@@ -55,6 +69,17 @@ namespace NavShieldTracer.Modules.Storage
             EnsureSchema();
         }
 
+        /// <summary>
+        /// Aplica pragmas de otimizacao ao banco de dados SQLite.
+        /// </summary>
+        /// <remarks>
+        /// Configura:
+        /// - WAL journal mode para melhor concorrencia
+        /// - Synchronous NORMAL para balancear seguranca e performance
+        /// - Foreign keys habilitadas para integridade referencial
+        /// - Cache de 200MB para queries rapidas
+        /// - Timeout de 5s para operacoes com banco bloqueado
+        /// </remarks>
         private void ApplyPragmas()
         {
             using var cmd = _conn.CreateCommand();
@@ -69,6 +94,22 @@ namespace NavShieldTracer.Modules.Storage
             cmd.ExecuteNonQuery();
         }
 
+        /// <summary>
+        /// Cria o schema completo do banco de dados se nao existir.
+        /// </summary>
+        /// <remarks>
+        /// Cria as seguintes tabelas:
+        /// - sessions: Sessoes de monitoramento
+        /// - events: Eventos do Sysmon com schema normalizado
+        /// - atomic_tests: Testes atomicos catalogados do MITRE ATT&amp;CK
+        /// - normalized_test_signatures: Assinaturas comportamentais normalizadas
+        /// - normalized_core_events: Eventos criticos de cada assinatura
+        /// - normalized_whitelist_entries: Entradas de whitelist para filtragem de ruido
+        /// - normalization_log: Log de processamento de normalizacao
+        /// - session_similarity_snapshots: Snapshots de analise de similaridade em tempo real
+        /// - alert_history: Historico de mudancas de nivel de ameaca
+        /// Tambem cria indices otimizados para queries de motor heuristico.
+        /// </remarks>
         private void EnsureSchema()
         {
             using var tx = _conn.BeginTransaction();
@@ -288,6 +329,14 @@ namespace NavShieldTracer.Modules.Storage
             tx.Commit();
         }
 
+        /// <summary>
+        /// Garante que as colunas de normalizacao existam na tabela atomic_tests.
+        /// </summary>
+        /// <param name="tx">Transacao ativa do SQLite</param>
+        /// <remarks>
+        /// Adiciona colunas normalized_at, tarja, tarja_reason e normalization_status se nao existirem.
+        /// Usado para suportar workflow de normalizacao de testes catalogados.
+        /// </remarks>
         private void EnsureAtomicNormalizationColumns(SqliteTransaction tx)
         {
             EnsureColumnExists(tx, "atomic_tests", "normalized_at", "TEXT");
@@ -296,6 +345,18 @@ namespace NavShieldTracer.Modules.Storage
             EnsureColumnExists(tx, "atomic_tests", "normalization_status", "TEXT DEFAULT 'Pending'");
         }
 
+        /// <summary>
+        /// Verifica se uma coluna existe em uma tabela e a cria se necessario.
+        /// </summary>
+        /// <param name="tx">Transacao ativa do SQLite</param>
+        /// <param name="table">Nome da tabela</param>
+        /// <param name="column">Nome da coluna a verificar/criar</param>
+        /// <param name="definition">Definicao SQL da coluna (tipo e constraints)</param>
+        /// <remarks>
+        /// Usa pragma_table_info para verificar existencia sem exceções.
+        /// Executa ALTER TABLE ADD COLUMN se a coluna nao existir.
+        /// Seguro para migracao incremental de schema.
+        /// </remarks>
         private void EnsureColumnExists(SqliteTransaction tx, string table, string column, string definition)
         {
             using var checkCmd = _conn.CreateCommand();
@@ -312,10 +373,14 @@ namespace NavShieldTracer.Modules.Storage
         }
 
         /// <summary>
-        /// Inicia uma nova sessão de monitoramento
+        /// Inicia uma nova sessao de monitoramento no banco de dados.
         /// </summary>
-        /// <param name="info">Informações da sessão</param>
-        /// <returns>ID da sessão criada</returns>
+        /// <param name="info">Informacoes da sessao incluindo processo alvo, host, usuario e PID raiz</param>
+        /// <returns>ID da sessao criada (chave primaria auto-incrementada)</returns>
+        /// <remarks>
+        /// Insere um registro na tabela sessions com timestamp atual.
+        /// Este ID sera usado como chave estrangeira para todos os eventos e testes atomicos relacionados.
+        /// </remarks>
         public int BeginSession(SessionInfo info)
         {
             using var cmd = _conn.CreateCommand();
@@ -377,10 +442,15 @@ namespace NavShieldTracer.Modules.Storage
         }
 
         /// <summary>
-        /// Finaliza uma sessão de monitoramento
+        /// Finaliza uma sessao de monitoramento registrando timestamp de encerramento.
         /// </summary>
-        /// <param name="sessionId">ID da sessão</param>
-        /// <param name="summary">Resumo opcional da sessão</param>
+        /// <param name="sessionId">ID da sessao a finalizar</param>
+        /// <param name="summary">Objeto opcional com estatisticas da sessao (serializado em JSON no campo notes)</param>
+        /// <remarks>
+        /// Atualiza o campo ended_at com timestamp atual.
+        /// Se summary for fornecido, serializa como JSON e anexa ao campo notes.
+        /// Chamado tipicamente ao pressionar ENTER para finalizar catalogacao ou ao encerrar monitoramento.
+        /// </remarks>
         public void CompleteSession(int sessionId, object? summary = null)
         {
             using var cmd = _conn.CreateCommand();
@@ -552,10 +622,19 @@ namespace NavShieldTracer.Modules.Storage
         }
 
         /// <summary>
-        /// Insere um evento na sessão especificada
+        /// Insere um evento do Sysmon no banco de dados associado a uma sessao.
         /// </summary>
-        /// <param name="sessionId">ID da sessão</param>
-        /// <param name="data">Dados do evento</param>
+        /// <param name="sessionId">ID da sessao de monitoramento</param>
+        /// <param name="data">Objeto de evento do Sysmon (deve herdar de EventoSysmonBase)</param>
+        /// <remarks>
+        /// Este metodo:
+        /// - Verifica se o evento herda de EventoSysmonBase
+        /// - Extrai campos especificos de acordo com o tipo de evento (process create, network, file, etc)
+        /// - Normaliza e serializa dados em schema SQL unificado
+        /// - Usa INSERT OR IGNORE para evitar duplicatas (constraint unique em computer_name + event_record_id)
+        /// - Serializa evento completo em raw_json para troubleshooting
+        /// Suporta todos os 26 tipos de eventos do Sysmon.
+        /// </remarks>
         public void InsertEvent(int sessionId, object data)
         {
             if (data is not EventoSysmonBase ebase) return;
