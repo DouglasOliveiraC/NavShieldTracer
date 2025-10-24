@@ -1,0 +1,39 @@
+@using Spectre.Console
+<Columns>
+    <Panel Title="Sistema" BorderColor="@(SysmonStatus.IsReady ? Color.Green : Color.Red)">
+        <Grid Columns="2">
+            <Markup Content="Horario:" />
+            <Markup Content='@CurrentTime.ToString("HH:mm:ss")' Foreground="@Color.Cyan1" />
+            <Markup Content="Sessao:" />
+            <Markup Content='@(Dashboard.HasActiveSession ? "Ativa" : "Inativa")'
+                    Foreground='@(Dashboard.HasActiveSession ? Color.Green : Color.Grey)' />
+        </Grid>
+    </Panel>
+
+    <Panel Title="Catalogo" BorderColor="@Color.Blue">
+        <Grid Columns="2">
+            <Markup Content="Testes:" />
+            <Markup Content='@Dashboard.TotalTestes.ToString()' Foreground="@Color.Cyan1" />
+            <Markup Content="Eventos:" />
+            <Markup Content='@Dashboard.TotalEventos.ToString()' Foreground="@Color.Cyan1" />
+        </Grid>
+    </Panel>
+
+    <Panel Title="Status" BorderColor="@Color.Magenta1">
+        <Grid Columns="2">
+            <Markup Content="Sysmon:" />
+            <Markup Content='@(SysmonStatus.ServiceRunning ? "Online" : "Offline")'
+                    Foreground='@(SysmonStatus.ServiceRunning ? Color.Green : Color.Red)' />
+            <Markup Content="Acesso:" />
+            <Markup Content='@(SysmonStatus.HasAccess ? "OK" : "Negado")'
+                    Foreground='@(SysmonStatus.HasAccess ? Color.Green : Color.Red)' />
+        </Grid>
+    </Panel>
+</Columns>
+
+@code {
+    [Parameter] public bool IsCompact { get; set; }
+    [Parameter] public DashboardSnapshot Dashboard { get; set; } = null!;
+    [Parameter] public SysmonStatus SysmonStatus { get; set; } = null!;
+    [Parameter] public DateTime CurrentTime { get; set; }
+}

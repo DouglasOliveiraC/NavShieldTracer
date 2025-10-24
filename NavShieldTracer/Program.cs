@@ -1,8 +1,6 @@
-using Microsoft.Extensions.DependencyInjection;
-using NavShieldTracer.Components;
 using NavShieldTracer.Modules.Storage;
 using NavShieldTracer.Services;
-using RazorConsole.Core;
+using NavShieldTracer.UI;
 using Spectre.Console;
 
 if (Console.IsOutputRedirected)
@@ -21,17 +19,16 @@ AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
 
 try
 {
-    var app = AppHost.Create<App>(builder =>
-    {
-        builder.Services.AddSingleton<SqliteEventStore>();
-        builder.Services.AddSingleton<NavShieldAppService>();
-        builder.Services.AddSingleton(_ => new ConsoleAppOptions
-        {
-            AutoClearConsole = false
-        });
-    });
+    // Inicializa serviços
+    var store = new SqliteEventStore();
+    var appService = new NavShieldAppService(store);
 
-    await app.RunAsync();
+    // Cria e executa a UI otimizada
+    var ui = new ConsoleUI(appService);
+    await ui.RunAsync();
+
+    // Cleanup
+    appService.Dispose();
 }
 catch (Exception ex)
 {

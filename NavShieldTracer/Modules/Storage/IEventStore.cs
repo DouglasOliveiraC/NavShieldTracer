@@ -112,6 +112,14 @@ namespace NavShieldTracer.Modules.Storage
         /// <param name="testeId">ID do teste a excluir</param>
         /// <returns>True se excluído com sucesso</returns>
         bool ExcluirTesteAtomico(int testeId);
+
+        /// <summary>
+        /// Obtém a contagem de eventos críticos agrupados por Event ID para uma sessão específica.
+        /// Usado para classificação automática de nível de ameaça segundo padrão do Ministério da Defesa.
+        /// </summary>
+        /// <param name="sessionId">ID da sessão a ser analisada</param>
+        /// <returns>Dicionário com Event ID como chave e contagem de ocorrências como valor</returns>
+        Dictionary<int, int> GetCriticalEventCounts(int sessionId);
     }
 }
 

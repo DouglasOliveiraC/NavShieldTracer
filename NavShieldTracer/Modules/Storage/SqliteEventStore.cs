@@ -993,6 +993,51 @@ namespace NavShieldTracer.Modules.Storage
         }
 
         /// <summary>
+        /// Obtém a contagem de eventos críticos agrupados por Event ID para uma sessão específica.
+        /// Usado para classificação automática de nível de ameaça segundo padrão do Ministério da Defesa.
+        /// </summary>
+        /// <param name="sessionId">ID da sessão a ser analisada.</param>
+        /// <returns>Dicionário com Event ID como chave e contagem de ocorrências como valor.</returns>
+        /// <remarks>
+        /// Eventos críticos monitorados:
+        /// - Event ID 1: ProcessCreate (reconhecimento)
+        /// - Event ID 2: FileCreateTime (timestomping)
+        /// - Event ID 3: NetworkConnect (C2, exfiltração)
+        /// - Event ID 8: CreateRemoteThread (injeção de código)
+        /// - Event ID 10: ProcessAccess (credential dumping, movimentação lateral)
+        /// - Event ID 13: RegistryValueSet (persistência)
+        /// - Event ID 17: PipeCreated (comunicação inter-processo maliciosa)
+        /// - Event ID 22: DNSQuery (reconhecimento)
+        /// - Event ID 23: FileDelete (ransomware, sabotagem)
+        /// - Event ID 25: ProcessTampering (adulteração de processos)
+        /// </remarks>
+        public Dictionary<int, int> GetCriticalEventCounts(int sessionId)
+        {
+            var result = new Dictionary<int, int>();
+
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT event_id, COUNT(*) as count
+                FROM events
+                WHERE session_id = $session_id
+                  AND event_id IN (1, 2, 3, 8, 10, 13, 17, 22, 23, 25)
+                GROUP BY event_id
+                ORDER BY event_id;
+            ";
+            cmd.Parameters.AddWithValue("$session_id", sessionId);
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                int eventId = reader.GetInt32(0);
+                int count = reader.GetInt32(1);
+                result[eventId] = count;
+            }
+
+            return result;
+        }
+
+        /// <summary>
         /// Atualiza informações de um teste catalogado
         /// </summary>
         /// <param name="testeId">ID do teste</param>

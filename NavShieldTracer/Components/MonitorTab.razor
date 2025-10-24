@@ -1,0 +1,308 @@
+@using Spectre.Console
+@inject NavShieldAppService AppService
+
+<Panel Title="Monitoramento em Tempo Real" BorderColor="@Color.Cyan1">
+    <Markup Content="Digite o nome do executavel para monitorar:" />
+    <TextInput @bind-Value="_monitorTarget" Placeholder="exemplo: chrome.exe" />
+    <Newline />
+    @if (UseCompactLayout)
+    {
+        <Rows>
+            <TextButton Content="Iniciar"
+                        BackgroundColor="@Color.Green"
+                        FocusedColor="@Color.Green3"
+                        OnClick="@StartMonitorAsync" />
+            <TextButton Content="Parar"
+                        BackgroundColor="@Color.Red"
+                        FocusedColor="@Color.Red3"
+                        OnClick="@StopMonitorAsync" />
+        </Rows>
+    }
+    else
+    {
+        <Columns>
+            <TextButton Content="Iniciar"
+                        BackgroundColor="@Color.Green"
+                        FocusedColor="@Color.Green3"
+                        OnClick="@StartMonitorAsync" />
+            <TextButton Content="Parar"
+                        BackgroundColor="@Color.Red"
+                        FocusedColor="@Color.Red3"
+                        OnClick="@StopMonitorAsync" />
+        </Columns>
+    }
+
+    @if (!string.IsNullOrEmpty(_monitorError))
+    {
+        <Newline />
+        <Markup Content="@_monitorError" Foreground="@Color.Red" />
+    }
+
+    @if (ActiveSession is not null)
+    {
+        var threatLevel = GetThreatLevel();
+        var threatColor = ResolveThreatColor(threatLevel);
+        var duration = CurrentTime - ActiveSession.StartedAt;
+        var logsDisponiveis = ActiveSession.Logs.TakeLast(MaxLogs).ToList();
+
+        <Newline />
+
+        @if (UseCompactLayout)
+        {
+            <Rows>
+                <Panel Title="Sessao Ativa" BorderColor="@Color.Green">
+                    <Grid Columns="2">
+                        <Markup Content="Monitorando:" />
+                        <Markup Content='@ActiveSession.TargetExecutable' Foreground="@Color.Green" />
+                        <Markup Content="Eventos capturados:" />
+                        <Markup Content='@ActiveSession.TotalEventos.ToString()' Foreground="@Color.Cyan1" />
+                        <Markup Content="Processos ativos:" />
+                        <Markup Content='@ActiveSession.Statistics.ProcessosAtivos.ToString()' Foreground="@Color.Yellow" />
+                        <Markup Content="Processos encerrados:" />
+                        <Markup Content='@ActiveSession.Statistics.ProcessosEncerrados.ToString()' Foreground="@Color.Yellow" />
+                    </Grid>
+                </Panel>
+                <Panel Title="Status do Sistema" BorderColor='@threatColor'>
+                    <Grid Columns="2">
+                        <Markup Content="Nivel de Alerta:" />
+                        <Markup Content='@ResolveThreatText(threatLevel)'
+                                Foreground='@threatColor'
+                                Decoration="@Decoration.Bold" />
+                        <Markup Content="Sysmon:" />
+                        <Markup Content='@(SysmonStatus.ServiceRunning ? "Online" : "Offline")'
+                                Foreground='@(SysmonStatus.ServiceRunning ? Color.Green : Color.Red)' />
+                        <Markup Content="Duracao:" />
+                        <Markup Content='@duration.ToString("hh\\:mm\\:ss")' Foreground="@Color.Cyan1" />
+                        <Markup Content="Media encerrados:" />
+                        <Markup Content='@((ActiveSession.Statistics.TempoMedioDeVidaEncerrados?.ToString("hh\\:mm\\:ss")) ?? "--")' />
+                    </Grid>
+                </Panel>
+            </Rows>
+        }
+        else
+        {
+            <Columns>
+                <Panel Title="Sessao Ativa" BorderColor="@Color.Green">
+                    <Grid Columns="2">
+                        <Markup Content="Monitorando:" />
+                        <Markup Content='@ActiveSession.TargetExecutable' Foreground="@Color.Green" />
+                        <Markup Content="Eventos capturados:" />
+                        <Markup Content='@ActiveSession.TotalEventos.ToString()' Foreground="@Color.Cyan1" />
+                        <Markup Content="Processos ativos:" />
+                        <Markup Content='@ActiveSession.Statistics.ProcessosAtivos.ToString()' Foreground="@Color.Yellow" />
+                        <Markup Content="Processos encerrados:" />
+                        <Markup Content='@ActiveSession.Statistics.ProcessosEncerrados.ToString()' Foreground="@Color.Yellow" />
+                    </Grid>
+                </Panel>
+                <Panel Title="Status do Sistema" BorderColor='@threatColor'>
+                    <Grid Columns="2">
+                        <Markup Content="Nivel de Alerta:" />
+                        <Markup Content='@ResolveThreatText(threatLevel)'
+                                Foreground='@threatColor'
+                                Decoration="@Decoration.Bold" />
+                        <Markup Content="Sysmon:" />
+                        <Markup Content='@(SysmonStatus.ServiceRunning ? "Online" : "Offline")'
+                                Foreground='@(SysmonStatus.ServiceRunning ? Color.Green : Color.Red)' />
+                        <Markup Content="Duracao:" />
+                        <Markup Content='@duration.ToString("hh\\:mm\\:ss")' Foreground="@Color.Cyan1" />
+                        <Markup Content="Media encerrados:" />
+                        <Markup Content='@((ActiveSession.Statistics.TempoMedioDeVidaEncerrados?.ToString("hh\\:mm\\:ss")) ?? "--")' />
+                    </Grid>
+                </Panel>
+            </Columns>
+        }
+
+        @if (ActiveSession.Statistics.ProcessosAtivosDetalhados.Count > 0)
+        {
+            var totalProcessos = ActiveSession.Statistics.ProcessosAtivosDetalhados.Count;
+            var processosVisiveis = Math.Min(MaxProcessosVisiveis, totalProcessos);
+
+            <Newline />
+            <Markup Content='@($"Top {processosVisiveis} processos (Total: {totalProcessos})")'
+                    Foreground="@Color.Grey"
+                    Decoration="@Decoration.Bold" />
+            <SpectreTable ShowHeaders="true" Expand="true">
+                <SpectreTHead>
+                    <SpectreTR>
+                        <SpectreTH><Markup Content="PID" /></SpectreTH>
+                        <SpectreTH><Markup Content="Imagem" /></SpectreTH>
+                        <SpectreTH><Markup Content="Inicio" /></SpectreTH>
+                        <SpectreTH><Markup Content="Duracao" /></SpectreTH>
+                    </SpectreTR>
+                </SpectreTHead>
+                <SpectreTBody>
+                    @foreach (var proc in ActiveSession.Statistics.ProcessosAtivosDetalhados
+                                             .OrderByDescending(p => p.IniciadoEm ?? DateTime.MinValue)
+                                             .Take(MaxProcessosVisiveis))
+                    {
+                        var inicio = proc.IniciadoEm?.ToString("HH:mm:ss") ?? "--";
+                        var duracao = proc.IniciadoEm is not null
+                            ? (CurrentTime - proc.IniciadoEm.Value).ToString("hh\\:mm\\:ss")
+                            : proc.DuracaoAtual?.ToString("hh\\:mm\\:ss") ?? "--";
+
+                        <SpectreTR>
+                            <SpectreTD><Markup Content='@proc.PID.ToString()' Foreground="@Color.Yellow" /></SpectreTD>
+                            <SpectreTD><Markup Content='@Spectre.Console.Markup.Escape(proc.Imagem)' /></SpectreTD>
+                            <SpectreTD><Markup Content='@inicio' /></SpectreTD>
+                            <SpectreTD><Markup Content='@duracao' /></SpectreTD>
+                        </SpectreTR>
+                    }
+                </SpectreTBody>
+            </SpectreTable>
+        }
+
+        @if (logsDisponiveis.Count > 0)
+        {
+            <Newline />
+            <Markup Content='@($"Logs recentes ({logsDisponiveis.Count}/{ActiveSession.Logs.Count})")'
+                    Decoration="@Decoration.Bold"
+                    Foreground="@Color.Grey" />
+            @foreach (var log in logsDisponiveis)
+            {
+                <Markup Content='@("  " + Spectre.Console.Markup.Escape(log))' Foreground="@Color.Grey70" />
+            }
+        }
+    }
+    else
+    {
+        <Newline />
+        <Markup Content="Nenhuma sessao ativa. Informe um executavel e pressione Iniciar para comecar o monitoramento."
+                Foreground="@Color.Grey" />
+    }
+</Panel>
+
+@code {
+    private const int MaxLogs = 6;
+    private const int MaxProcessosVisiveis = 8;
+
+    [Parameter] public bool UseCompactLayout { get; set; }
+    [Parameter] public SysmonStatus SysmonStatus { get; set; } = null!;
+    [Parameter] public MonitoringSessionSnapshot? ActiveSession { get; set; }
+    [Parameter] public IReadOnlyDictionary<int, int> CriticalEventCounts { get; set; } = new Dictionary<int, int>();
+    [Parameter] public DateTime CurrentTime { get; set; }
+    [Parameter] public EventCallback OnSessionStateChanged { get; set; }
+
+    private string _monitorTarget = string.Empty;
+    private string? _monitorError;
+
+    private async Task StartMonitorAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_monitorTarget))
+        {
+            _monitorError = "Informe o nome do executavel.";
+            return;
+        }
+
+        try
+        {
+            _monitorError = null;
+            AppService.StartMonitoring(_monitorTarget.Trim());
+            await OnSessionStateChanged.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            _monitorError = ex.Message;
+        }
+    }
+
+    private async Task StopMonitorAsync()
+    {
+        try
+        {
+            await AppService.StopActiveSessionAsync().ConfigureAwait(false);
+            await OnSessionStateChanged.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            _monitorError = ex.Message;
+        }
+    }
+
+    private ThreatLevel GetThreatLevel()
+    {
+        if (ActiveSession is null || CriticalEventCounts.Count == 0)
+        {
+            return ThreatLevel.Baixo;
+        }
+
+        var injectionEvents = CriticalEventCounts.GetValueOrDefault(8);
+        var tamperingEvents = CriticalEventCounts.GetValueOrDefault(25);
+        var fileDeleteEvents = CriticalEventCounts.GetValueOrDefault(23);
+        var networkEvents = CriticalEventCounts.GetValueOrDefault(3);
+        var processAccessEvents = CriticalEventCounts.GetValueOrDefault(10);
+        var timestompingEvents = CriticalEventCounts.GetValueOrDefault(2);
+        var registryEvents = CriticalEventCounts.GetValueOrDefault(13);
+        var pipeEvents = CriticalEventCounts.GetValueOrDefault(17);
+        var dnsEvents = CriticalEventCounts.GetValueOrDefault(22);
+        var processCreateEvents = CriticalEventCounts.GetValueOrDefault(1);
+
+        if (injectionEvents > 0 || tamperingEvents > 0)
+        {
+            return ThreatLevel.Severo;
+        }
+
+        if (fileDeleteEvents > 20)
+        {
+            return ThreatLevel.Severo;
+        }
+
+        if (networkEvents > 50 || processAccessEvents > 10)
+        {
+            return ThreatLevel.Alto;
+        }
+
+        if (fileDeleteEvents is > 5 and <= 20)
+        {
+            return ThreatLevel.Alto;
+        }
+
+        if (timestompingEvents > 0 || (registryEvents > 10 && pipeEvents > 0))
+        {
+            return ThreatLevel.Medio;
+        }
+
+        if (processAccessEvents is > 0 and <= 10)
+        {
+            return ThreatLevel.Medio;
+        }
+
+        if (dnsEvents > 20 || processCreateEvents > 15)
+        {
+            return ThreatLevel.Moderado;
+        }
+
+        if (registryEvents > 5 || networkEvents > 10)
+        {
+            return ThreatLevel.Moderado;
+        }
+
+        return ThreatLevel.Baixo;
+    }
+
+    private static string ResolveThreatText(ThreatLevel level) => level switch
+    {
+        ThreatLevel.Severo => "SEVERO",
+        ThreatLevel.Alto => "ALTO",
+        ThreatLevel.Medio => "MEDIO",
+        ThreatLevel.Moderado => "MODERADO",
+        _ => "BAIXO"
+    };
+
+    private static Color ResolveThreatColor(ThreatLevel level) => level switch
+    {
+        ThreatLevel.Severo => Color.Red,
+        ThreatLevel.Alto => Color.Orange3,
+        ThreatLevel.Medio => Color.Yellow,
+        ThreatLevel.Moderado => Color.Blue,
+        _ => Color.Green
+    };
+
+    private enum ThreatLevel
+    {
+        Baixo,
+        Moderado,
+        Medio,
+        Alto,
+        Severo
+    }
+}

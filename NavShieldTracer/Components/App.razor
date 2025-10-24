@@ -26,86 +26,9 @@ else
     <Markup Content="Real-time Sysmon Event Correlation · MITRE ATT&CK Behavioral Monitoring" Foreground="@Color.Grey" />
     <Newline />
 
-    @if (UseCompactLayout)
-    {
-        <Rows>
-            <Panel Title="Sistema" BorderColor="@(_sysmonStatus.IsReady ? Color.Green : Color.Red)">
-                <Grid Columns="2">
-                    <Markup Content="Horario:" />
-                    <Markup Content='@_now.ToString("HH:mm:ss")' Foreground="@Color.Cyan1" />
-                    <Markup Content="Sessao:" />
-                    <Markup Content='@(_dashboard.HasActiveSession ? "Ativa" : "Inativa")'
-                            Foreground='@(_dashboard.HasActiveSession ? Color.Green : Color.Grey)' />
-                    <Markup Content="Canal:" />
-                    <Markup Content='@(_sysmonStatus.LogName ?? "N/A")' Foreground="@Color.Yellow" />
-                </Grid>
-            </Panel>
-
-            <Panel Title="Catalogo" BorderColor="@Color.Blue">
-                <Grid Columns="2">
-                    <Markup Content="Testes:" />
-                    <Markup Content='@_dashboard.TotalTestes.ToString()' Foreground="@Color.Cyan1" />
-                    <Markup Content="Eventos:" />
-                    <Markup Content='@_dashboard.TotalEventos.ToString()' Foreground="@Color.Cyan1" />
-                    <Markup Content="Ultimo:" />
-                    <Markup Content='@(_dashboard.UltimoTesteEm?.ToString("dd/MM HH:mm") ?? "--")' Foreground="@Color.Yellow" />
-                </Grid>
-            </Panel>
-
-            <Panel Title="Status" BorderColor="@Color.Magenta1">
-                <Grid Columns="2">
-                    <Markup Content="Sysmon:" />
-                    <Markup Content='@(_sysmonStatus.ServiceRunning ? "Online" : "Offline")'
-                            Foreground='@(_sysmonStatus.ServiceRunning ? Color.Green : Color.Red)' />
-                    <Markup Content="Acesso:" />
-                    <Markup Content='@(_sysmonStatus.HasAccess ? "OK" : "Negado")'
-                            Foreground='@(_sysmonStatus.HasAccess ? Color.Green : Color.Red)' />
-                    <Markup Content="Usuario:" />
-                    <Markup Content='@Environment.UserName' Foreground="@Color.Cyan1" />
-                </Grid>
-            </Panel>
-        </Rows>
-    }
-    else
-    {
-        <Columns>
-            <Panel Title="Sistema" BorderColor="@(_sysmonStatus.IsReady ? Color.Green : Color.Red)">
-                <Grid Columns="2">
-                    <Markup Content="Horario:" />
-                    <Markup Content='@_now.ToString("HH:mm:ss")' Foreground="@Color.Cyan1" />
-                    <Markup Content="Sessao:" />
-                    <Markup Content='@(_dashboard.HasActiveSession ? "Ativa" : "Inativa")'
-                            Foreground='@(_dashboard.HasActiveSession ? Color.Green : Color.Grey)' />
-                    <Markup Content="Canal:" />
-                    <Markup Content='@(_sysmonStatus.LogName ?? "N/A")' Foreground="@Color.Yellow" />
-                </Grid>
-            </Panel>
-
-            <Panel Title="Catalogo" BorderColor="@Color.Blue">
-                <Grid Columns="2">
-                    <Markup Content="Testes:" />
-                    <Markup Content='@_dashboard.TotalTestes.ToString()' Foreground="@Color.Cyan1" />
-                    <Markup Content="Eventos:" />
-                    <Markup Content='@_dashboard.TotalEventos.ToString()' Foreground="@Color.Cyan1" />
-                    <Markup Content="Ultimo:" />
-                    <Markup Content='@(_dashboard.UltimoTesteEm?.ToString("dd/MM HH:mm") ?? "--")' Foreground="@Color.Yellow" />
-                </Grid>
-            </Panel>
-
-            <Panel Title="Status" BorderColor="@Color.Magenta1">
-                <Grid Columns="2">
-                    <Markup Content="Sysmon:" />
-                    <Markup Content='@(_sysmonStatus.ServiceRunning ? "Online" : "Offline")'
-                            Foreground='@(_sysmonStatus.ServiceRunning ? Color.Green : Color.Red)' />
-                    <Markup Content="Acesso:" />
-                    <Markup Content='@(_sysmonStatus.HasAccess ? "OK" : "Negado")'
-                            Foreground='@(_sysmonStatus.HasAccess ? Color.Green : Color.Red)' />
-                    <Markup Content="Usuario:" />
-                    <Markup Content='@Environment.UserName' Foreground="@Color.Cyan1" />
-                </Grid>
-            </Panel>
-        </Columns>
-    }
+    <DashboardHeader Dashboard="_dashboard"
+                     SysmonStatus="_sysmonStatus"
+                     CurrentTime="_now" />
 
     <Newline />
     <Markup Content="Navegacao" Decoration="@Decoration.Bold" />
@@ -203,82 +126,12 @@ else
 
         case AppTab.Monitor:
         {
-            <Panel Title="Monitoramento em Tempo Real" BorderColor="@Color.Cyan1">
-                <Markup Content="Digite o nome do executavel para monitorar:" />
-                <TextInput @bind-Value="_monitorTarget" Placeholder="exemplo: chrome.exe" />
-                <Newline />
-                <Columns>
-                    <TextButton Content="Iniciar"
-                                BackgroundColor="@Color.Green"
-                                FocusedColor="@Color.Green3"
-                                OnClick="@StartMonitorAsync" />
-                    <TextButton Content="Parar"
-                                BackgroundColor="@Color.Red"
-                                FocusedColor="@Color.Red3"
-                                OnClick="@StopMonitorAsync" />
-                </Columns>
-                @if (!string.IsNullOrEmpty(_monitorError))
-                {
-                    <Newline />
-                    <Markup Content="@_monitorError" Foreground="@Color.Red" />
-                }
-                @if (_activeSession is not null)
-                {
-                    <Newline />
-                    <Grid Columns="2">
-                        <Markup Content="Monitorando:" />
-                        <Markup Content='@_activeSession.TargetExecutable' Foreground="@Color.Green" />
-                        <Markup Content="Eventos capturados:" />
-                        <Markup Content='@_activeSession.TotalEventos.ToString()' Foreground="@Color.Cyan1" />
-                        <Markup Content="Processos ativos:" />
-                        <Markup Content='@_activeSession.Statistics.ProcessosAtivos.ToString()' Foreground="@Color.Yellow" />
-                        <Markup Content="Processos encerrados:" />
-                        <Markup Content='@_activeSession.Statistics.ProcessosEncerrados.ToString()' Foreground="@Color.Yellow" />
-                        <Markup Content="Tempo medio encerrados:" />
-                        <Markup Content='@(_activeSession.Statistics.TempoMedioDeVidaEncerrados?.ToString("hh\\:mm\\:ss") ?? "--")' />
-                        <Markup Content="Inicio da sessao:" />
-                        <Markup Content='@_activeSession.StartedAt.ToString("dd/MM HH:mm:ss")' Foreground="@Color.Grey" />
-                    </Grid>
-                    @if (_activeSession.Statistics.ProcessosAtivosDetalhados.Count > 0)
-                    {
-                        <Newline />
-                        <SpectreTable ShowHeaders="true" Expand="true">
-                            <SpectreTHead>
-                                <SpectreTR>
-                                    <SpectreTH><Markup Content="PID" /></SpectreTH>
-                                    <SpectreTH><Markup Content="Imagem" /></SpectreTH>
-                                    <SpectreTH><Markup Content="Inicio" /></SpectreTH>
-                                    <SpectreTH><Markup Content="Duracao" /></SpectreTH>
-                                </SpectreTR>
-                            </SpectreTHead>
-                            <SpectreTBody>
-                                @foreach (var proc in _activeSession.Statistics.ProcessosAtivosDetalhados)
-                                {
-                                    <SpectreTR>
-                                        <SpectreTD><Markup Content='@proc.PID.ToString()' Foreground="@Color.Yellow" /></SpectreTD>
-                                        <SpectreTD><Markup Content='@Spectre.Console.Markup.Escape(proc.Imagem)' /></SpectreTD>
-                                        <SpectreTD><Markup Content='@(proc.IniciadoEm?.ToString("HH:mm:ss") ?? "--")' /></SpectreTD>
-                                        <SpectreTD><Markup Content='@(proc.DuracaoAtual?.ToString("hh\\:mm\\:ss") ?? "--")' /></SpectreTD>
-                                    </SpectreTR>
-                                }
-                            </SpectreTBody>
-                        </SpectreTable>
-                    }
-                    @if (_activeSession.Logs.Count > 0)
-                    {
-                        <Newline />
-                        <Markup Content="Logs recentes" Decoration="@Decoration.Bold" />
-                        <SpectreTable ShowHeaders="false" Expand="true">
-                            @foreach (var log in _activeSession.Logs.Skip(Math.Max(0, _activeSession.Logs.Count - 10)))
-                            {
-                                <SpectreTR>
-                                    <SpectreTD><Markup Content='@Spectre.Console.Markup.Escape(log)' Foreground="@Color.Grey" /></SpectreTD>
-                                </SpectreTR>
-                            }
-                        </SpectreTable>
-                    }
-                }
-            </Panel>
+            <MonitorTab UseCompactLayout="UseCompactLayout"
+                        SysmonStatus="_sysmonStatus"
+                        ActiveSession="_activeSession"
+                        CriticalEventCounts="_criticalEventCounts"
+                        CurrentTime="_now"
+                        OnSessionStateChanged="HandleMonitorSessionChangedAsync" />
             break;
         }
 
@@ -420,13 +273,11 @@ else
     private DateTime _now = DateTime.Now;
     private DashboardSnapshot _dashboard = null!;
     private SysmonStatus _sysmonStatus = null!;
+    private MonitoringSessionSnapshot? _activeSession;
+    private IReadOnlyDictionary<int, int> _criticalEventCounts = new Dictionary<int, int>();
     private AppTab _activeTab = AppTab.Overview;
     private bool _initialized;
-    private CancellationTokenSource? _polling;
-    // Monitor tab
-    private MonitoringSessionSnapshot? _activeSession;
-    private string _monitorTarget = "";
-    private string? _monitorError;
+    private CancellationTokenSource? _refreshLoop;
 
     // Catalog tab
     private string _catalogNumero = "";
@@ -452,20 +303,58 @@ else
     protected override async Task OnInitializedAsync()
     {
         await RefreshDashboardAsync().ConfigureAwait(false);
+        await RefreshMonitorSnapshotAsync().ConfigureAwait(false);
         _initialized = true;
-        StartPolling();
+        StartRefreshLoop();
     }
 
     public void Dispose()
     {
-        _polling?.Cancel();
-        _polling?.Dispose();
+        _refreshLoop?.Cancel();
+        _refreshLoop?.Dispose();
     }
 
     private async Task RefreshDashboardAsync()
     {
         _sysmonStatus = await AppService.RefreshSysmonStatusAsync().ConfigureAwait(false);
         _dashboard = AppService.GetDashboardSnapshot();
+    }
+
+    private Task RefreshMonitorSnapshotAsync()
+    {
+        return Task.Run(() =>
+        {
+            MonitoringSessionSnapshot? snapshot = null;
+            IReadOnlyDictionary<int, int> critical;
+
+            try
+            {
+                snapshot = AppService.GetActiveSessionSnapshot();
+            }
+            catch
+            {
+                snapshot = null;
+            }
+
+            if (snapshot is not null)
+            {
+                try
+                {
+                    critical = AppService.GetCriticalEventCounts(snapshot.SessionId);
+                }
+                catch
+                {
+                    critical = new Dictionary<int, int>();
+                }
+            }
+            else
+            {
+                critical = new Dictionary<int, int>();
+            }
+
+            _activeSession = snapshot;
+            _criticalEventCounts = critical;
+        });
     }
 
     private void SetTab(AppTab tab)
@@ -477,61 +366,52 @@ else
         }
     }
 
-    private void StartPolling()
+    private void StartRefreshLoop()
     {
-        _polling?.Cancel();
-        _polling = new CancellationTokenSource();
-        var token = _polling.Token;
+        _refreshLoop?.Cancel();
+        _refreshLoop = new CancellationTokenSource();
+        var token = _refreshLoop.Token;
         _ = Task.Run(async () =>
         {
-            var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+            var fastTimer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+            var statusInterval = TimeSpan.FromSeconds(5);
+            var lastStatusSync = DateTime.MinValue;
             try
             {
-                while (await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
+                while (await fastTimer.WaitForNextTickAsync(token).ConfigureAwait(false))
                 {
                     _now = DateTime.Now;
-                    _activeSession = AppService.GetActiveSessionSnapshot();
+
+                    try
+                    {
+                        await RefreshMonitorSnapshotAsync().ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        // Se a sessao finalizar durante a leitura, ignore o erro e mantenha o estado atual.
+                    }
+
+                    if ((_now - lastStatusSync) >= statusInterval)
+                    {
+                        try
+                        {
+                            await RefreshDashboardAsync().ConfigureAwait(false);
+                        }
+                        catch
+                        {
+                            // Ignora atualizacao pontual; o proximo ciclo tentara novamente.
+                        }
+                        lastStatusSync = _now;
+                    }
+
                     await InvokeAsync(StateHasChanged).ConfigureAwait(false);
                 }
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException)
+            {
+                // Loop finalizado ao descartar o componente.
+            }
         }, token);
-    }
-
-    private async Task StartMonitorAsync()
-    {
-        if (string.IsNullOrWhiteSpace(_monitorTarget))
-        {
-            _monitorError = "Informe o nome do executavel.";
-            return;
-        }
-
-        try
-        {
-            _monitorError = null;
-            AppService.StartMonitoring(_monitorTarget.Trim());
-            _activeSession = AppService.GetActiveSessionSnapshot();
-            await RefreshDashboardAsync().ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _monitorError = ex.Message;
-        }
-    }
-
-    private async Task StopMonitorAsync()
-    {
-        try
-        {
-            await AppService.StopActiveSessionAsync().ConfigureAwait(false);
-            _activeSession = null;
-            await RefreshDashboardAsync().ConfigureAwait(false);
-            _testes = AppService.ListarTestes();
-        }
-        catch (Exception ex)
-        {
-            _monitorError = ex.Message;
-        }
     }
 
     private async Task StartCatalogAsync()
@@ -548,8 +428,7 @@ else
             var novo = new NovoTesteAtomico(_catalogNumero.Trim(), _catalogNome.Trim(), _catalogDescricao?.Trim() ?? string.Empty);
             var alvo = string.IsNullOrWhiteSpace(_catalogTarget) ? "teste.exe" : _catalogTarget.Trim();
             AppService.StartCatalog(novo, alvo);
-            _activeSession = AppService.GetActiveSessionSnapshot();
-            await RefreshDashboardAsync().ConfigureAwait(false);
+            await HandleMonitorSessionChangedAsync().ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -647,6 +526,17 @@ else
         await InvokeAsync(StateHasChanged).ConfigureAwait(false);
     }
 
+    private async Task HandleMonitorSessionChangedAsync()
+    {
+        await RefreshMonitorSnapshotAsync().ConfigureAwait(false);
+        await RefreshDashboardAsync().ConfigureAwait(false);
+        if (_activeTab == AppTab.Tests || _activeTab == AppTab.Manage)
+        {
+            _testes = AppService.ListarTestes();
+        }
+        await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+    }
+
     private static Color ResolveExportColor(string message)
         => message.StartsWith("Erro:", StringComparison.OrdinalIgnoreCase) ? Color.Red : Color.Green;
 
@@ -665,11 +555,3 @@ else
         return Color.Yellow;
     }
 }
-
-
-
-
-
-
-
-

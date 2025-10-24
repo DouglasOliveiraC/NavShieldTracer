@@ -160,6 +160,14 @@ public sealed class NavShieldAppService : IDisposable
     public ResumoTesteAtomico? ObterResumoTeste(int testeId) => _store.ObterResumoTeste(testeId);
 
     /// <summary>
+    /// Obtém a contagem de eventos críticos por Event ID para uma sessão específica.
+    /// Usado para classificação automática de nível de ameaça sem motor heurístico.
+    /// </summary>
+    /// <param name="sessionId">ID da sessão a ser analisada.</param>
+    /// <returns>Dicionário com Event ID como chave e contagem como valor.</returns>
+    public Dictionary<int, int> GetCriticalEventCounts(int sessionId) => _store.GetCriticalEventCounts(sessionId);
+
+    /// <summary>
     /// Obtém um snapshot da sessão de monitoramento ativa, se houver.
     /// </summary>
     /// <returns>Snapshot da sessão ativa ou null se não houver sessão ativa.</returns>
@@ -190,6 +198,7 @@ public sealed class NavShieldAppService : IDisposable
         }
 
         return new MonitoringSessionSnapshot(
+            session.SessionId,
             session.Kind,
             session.TargetExecutable,
             session.StartedAt,
@@ -511,6 +520,7 @@ public sealed record ProcessSnapshot(
 /// <summary>
 /// Snapshot de uma sessão de monitoramento ativa em andamento.
 /// </summary>
+/// <param name="SessionId">ID da sessão no banco de dados.</param>
 /// <param name="Kind">Tipo da sessão (Monitor ou Catalog).</param>
 /// <param name="TargetExecutable">Nome do executável sendo monitorado.</param>
 /// <param name="StartedAt">Data/hora de início da sessão.</param>
@@ -518,6 +528,7 @@ public sealed record ProcessSnapshot(
 /// <param name="Statistics">Estatísticas de atividade do processo.</param>
 /// <param name="Logs">Logs recentes da sessão.</param>
 public sealed record MonitoringSessionSnapshot(
+    int SessionId,
     MonitoringSessionType Kind,
     string TargetExecutable,
     DateTime StartedAt,
@@ -569,7 +580,7 @@ public enum MonitoringSessionType
 /// </summary>
 public sealed class MonitoringSession
 {
-    private const int MaxLogs = 200;
+    private const int MaxLogs = 50;
     private readonly ConcurrentQueue<string> _logs = new();
 
     /// <summary>
