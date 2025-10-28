@@ -1,6 +1,7 @@
 using System;
+using System.Collections.Generic;
 
-namespace NavShieldTracer.Modules.Storage
+namespace NavShieldTracer.Modules.Models
 {
     /// <summary>
     /// Informações de um teste atômico catalogado

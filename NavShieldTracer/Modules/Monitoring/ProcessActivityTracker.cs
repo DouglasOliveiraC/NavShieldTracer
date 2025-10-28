@@ -5,7 +5,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using NavShieldTracer.Modules.Models;
-using NavShieldTracer.Modules.Storage;
+using NavShieldTracer.Storage;
 
 namespace NavShieldTracer.Modules.Monitoring
 {

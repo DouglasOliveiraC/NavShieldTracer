@@ -4,12 +4,13 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NavShieldTracer.Modules.Diagnostics;
-using NavShieldTracer.Modules.Storage;
-using NavShieldTracer.Services;
+using NavShieldTracer.Modules.Models;
+using NavShieldTracer.Storage;
+using NavShieldTracer.ConsoleApp.Services;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 
-namespace NavShieldTracer.UI;
+namespace NavShieldTracer.ConsoleApp.UI;
 
 /// <summary>
 /// Interface de console otimizada usando Spectre.Console LiveDisplay para atualizações eficientes.
@@ -28,6 +29,7 @@ public sealed class ConsoleUI
 
     private const int MaxProcessosVisiveis = 8;
     private const int MaxLogsVisiveis = 6;
+    private const int MaxProcessSelectionOptions = 10;
 
     private readonly NavShieldAppService _appService;
     private readonly object _stateLock = new();
@@ -50,6 +52,13 @@ public sealed class ConsoleUI
     private string _manageDescricao = string.Empty;
     private ResumoTesteAtomico? _manageResumo;
     private string? _statusMessage;
+    private IReadOnlyList<ProcessSnapshot> _monitorSuggestions = Array.Empty<ProcessSnapshot>();
+    private IReadOnlyList<ProcessSnapshot> _topProcesses = Array.Empty<ProcessSnapshot>();
+    private IReadOnlyList<ProcessSnapshot> _processSelectionOptions = Array.Empty<ProcessSnapshot>();
+    private ProcessSelectionSource _processSelectionSource = ProcessSelectionSource.None;
+    private DateTime _lastSuggestionsUpdate = DateTime.MinValue;
+    private DateTime _lastTopProcessesUpdate = DateTime.MinValue;
+    private int _selectedProcessIndex = -1;
 
     /// <summary>
     /// Inicializa uma nova instância da interface de console.
@@ -89,8 +98,8 @@ public sealed class ConsoleUI
 
         await AnsiConsole.Live(BuildMainLayout())
             .AutoClear(false)
-            .Overflow(VerticalOverflow.Ellipsis)
-            .Cropping(VerticalOverflowCropping.Top)
+            .Overflow(VerticalOverflow.Visible)
+            .Cropping(VerticalOverflowCropping.Bottom)
             .StartAsync(async ctx =>
             {
                 var refreshTask = Task.Run(async () =>
@@ -162,44 +171,54 @@ public sealed class ConsoleUI
         var sysmonStatus = _appService.CurrentStatus;
         var now = DateTime.Now;
 
-        var layout = new Layout("Root")
-            .SplitRows(
-                new Layout("Banner", new Panel(BuildBanner())
-                    .Border(BoxBorder.None)
-                    .Expand()),
-                new Layout("Header", new Panel(BuildHeader(dashboard, sysmonStatus, now))
-                    .Border(BoxBorder.Rounded)
-                    .BorderColor(Color.Cyan1)
-                    .Expand()),
-                new Layout("Nav", new Panel(BuildNavigation())
-                    .Border(BoxBorder.None)
-                    .Expand()),
-                new Layout("Content", new Panel(BuildContent(dashboard, sysmonStatus, now))
-                    .Border(BoxBorder.Rounded)
-                    .Expand()),
-                new Layout("Footer", new Panel(BuildFooter())
-                    .Border(BoxBorder.None)
-                    .Expand())
-            );
+        var profile = AnsiConsole.Profile;
+        var compactMode = profile.Height is > 0 and <= 25;
 
-        layout["Banner"].Size(8);
-        layout["Header"].Size(5);
-        layout["Nav"].Size(3);
-        layout["Footer"].Size(2);
+        var sections = new List<IRenderable>();
 
-        return layout;
+        sections.Add((compactMode
+            ? new Panel(BuildCompactBanner())
+            : new Panel(BuildBanner()))
+            .Border(BoxBorder.None)
+            .Expand());
+
+        sections.Add(new Panel(BuildHeader(dashboard, sysmonStatus, now))
+            .Border(BoxBorder.Rounded)
+            .BorderColor(Color.Cyan1)
+            .Expand());
+
+        sections.Add(new Panel(BuildNavigation())
+            .Border(BoxBorder.None)
+            .Padding(0, 0, 0, 1)
+            .Expand());
+
+        sections.Add(new Panel(BuildContent(dashboard, sysmonStatus, now))
+            .Border(BoxBorder.Rounded)
+            .Expand());
+
+        sections.Add(new Panel(BuildFooter())
+            .Border(BoxBorder.None)
+            .Expand());
+
+        return new Rows(sections);
     }
 
     private IRenderable BuildBanner()
     {
         var grid = new Grid().AddColumn();
+        grid.AddRow(""); // Espaçamento superior
         foreach (var line in BannerLines)
         {
             grid.AddRow($"[cyan1 bold]{line}[/]");
         }
-        grid.AddRow("[white]Console SecOps Toolkit v2.0[/]");
-        grid.AddRow("[grey]Real-time Sysmon Event Correlation · MITRE ATT&CK Behavioral Monitoring[/]");
+        grid.AddRow("[white]Console SecOps Toolkit v1.0[/]");
+        grid.AddRow("[grey]Sistema de Classificacao de Ameacas - Baseado em Protocolos do Ministerio da Defesa[/]");
         return grid;
+    }
+
+    private IRenderable BuildCompactBanner()
+    {
+        return new Markup("[cyan1 bold]NavShieldTracer[/] [grey70]|[/] [grey]Console SecOps Toolkit v1.0 - Sistema de Defesa Cibernetica[/]");
     }
 
     private IRenderable BuildHeader(DashboardSnapshot dashboard, SysmonStatus sysmon, DateTime now)
@@ -301,16 +320,29 @@ public sealed class ConsoleUI
         string monitorTarget;
         string? statusMsg;
 
+        InputMode currentMode;
         lock (_stateLock)
         {
             monitorTarget = _monitorTarget;
             statusMsg = _statusMessage;
+            currentMode = _inputMode;
         }
 
-        InputMode currentMode;
+        RefreshProcessCaches(monitorTarget, now);
+
+        IReadOnlyList<ProcessSnapshot> suggestions;
+        IReadOnlyList<ProcessSnapshot> topProcesses;
+        IReadOnlyList<ProcessSnapshot> selectionOptions;
+        ProcessSelectionSource selectionSource;
+        int selectedIndex;
+
         lock (_stateLock)
         {
-            currentMode = _inputMode;
+            suggestions = _monitorSuggestions;
+            topProcesses = _topProcesses;
+            selectionOptions = _processSelectionOptions;
+            selectionSource = _processSelectionSource;
+            selectedIndex = _selectedProcessIndex;
         }
 
         var grid = new Grid().AddColumn();
@@ -327,6 +359,10 @@ public sealed class ConsoleUI
         if (currentMode == InputMode.Navigation)
         {
             grid.AddRow("[grey]Comandos: [[Enter]] Editar  [[M]] Iniciar  [[S]] Parar  [[C]] Limpar[/]");
+        }
+        else if (currentMode == InputMode.SelectingMonitorProcess)
+        {
+            grid.AddRow("[grey]Selecao: [[↑/↓]] Navegar  [[1-9]] Atalho  [[Tab]] Alternar lista  [[Enter]] Confirmar  [[Esc]] Cancelar[/]");
         }
 
         if (statusMsg != null)
@@ -397,6 +433,32 @@ public sealed class ConsoleUI
         else
         {
             grid.AddRow("").AddRow("[grey]Nenhuma sessao ativa. Pressione [[M]] para iniciar.[/]");
+        }
+
+        if (currentMode == InputMode.SelectingMonitorProcess && selectionOptions.Count > 0)
+        {
+            var label = selectionSource == ProcessSelectionSource.Suggestions
+                ? $"[grey bold]Processos correspondentes em execucao ({selectionOptions.Count} homonimo(s))[/]"
+                : "[grey bold]Top processos do sistema[/]";
+
+            grid.AddRow("").AddRow(label);
+            grid.AddRow(BuildProcessTable(selectionOptions, selectedIndex));
+        }
+        else
+        {
+            if (suggestions.Count > 0)
+            {
+                grid.AddRow("").AddRow($"[yellow bold]TODOS os {suggestions.Count} processo(s) homonimo(s) abaixo serao monitorados:[/]");
+                grid.AddRow(BuildProcessTable(suggestions));
+            }
+            else
+            {
+                // So mostra o top 10 quando NAO ha sugestoes de busca
+                grid.AddRow("").AddRow("[grey bold]Top processos por uso de memoria[/]");
+                grid.AddRow(topProcesses.Count > 0
+                    ? BuildProcessTable(topProcesses)
+                    : new Markup("[grey italic]Nao foi possivel carregar a lista de processos ou nenhum processo acessivel foi encontrado.[/]"));
+            }
         }
 
         return grid;
@@ -813,6 +875,114 @@ public sealed class ConsoleUI
         return grid;
     }
 
+    private void RefreshProcessCaches(string monitorTarget, DateTime now)
+    {
+        IReadOnlyList<ProcessSnapshot>? newTop = null;
+        IReadOnlyList<ProcessSnapshot>? newSuggestions = null;
+        var dataChanged = false;
+
+        if ((now - _lastTopProcessesUpdate) >= TimeSpan.FromSeconds(5))
+        {
+            try
+            {
+                newTop = _appService.GetTopProcesses(MaxProcessSelectionOptions);
+            }
+            catch
+            {
+                newTop = Array.Empty<ProcessSnapshot>();
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(monitorTarget) &&
+            (now - _lastSuggestionsUpdate) >= TimeSpan.FromMilliseconds(500))
+        {
+            try
+            {
+                newSuggestions = _appService.FindProcesses(monitorTarget, MaxProcessSelectionOptions);
+            }
+            catch
+            {
+                newSuggestions = Array.Empty<ProcessSnapshot>();
+            }
+        }
+
+        if (newTop is null && newSuggestions is null)
+        {
+            return;
+        }
+
+        lock (_stateLock)
+        {
+            if (newTop is not null)
+            {
+                _topProcesses = newTop;
+                _lastTopProcessesUpdate = now;
+                dataChanged = true;
+
+                if (_processSelectionSource == ProcessSelectionSource.TopProcesses)
+                {
+                    _processSelectionOptions = newTop;
+                    if (_selectedProcessIndex >= newTop.Count)
+                    {
+                        _selectedProcessIndex = newTop.Count - 1;
+                    }
+                }
+            }
+
+            if (newSuggestions is not null)
+            {
+                _monitorSuggestions = newSuggestions;
+                _lastSuggestionsUpdate = now;
+                dataChanged = true;
+
+                if (_processSelectionSource == ProcessSelectionSource.Suggestions)
+                {
+                    _processSelectionOptions = newSuggestions;
+                    if (_selectedProcessIndex >= newSuggestions.Count)
+                    {
+                        _selectedProcessIndex = newSuggestions.Count - 1;
+                    }
+                }
+            }
+
+            if (dataChanged)
+            {
+                _forceRefresh = true;
+            }
+        }
+    }
+
+    private static Table BuildProcessTable(IReadOnlyList<ProcessSnapshot> processes, int? highlightIndex = null)
+    {
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .BorderColor(Color.Grey)
+            .Expand()
+            .AddColumn("[grey]#[/]")
+            .AddColumn("[grey]Imagem[/]")
+            .AddColumn("[grey]PID[/]")
+            .AddColumn("[grey]Mem (MB)[/]");
+
+        for (var i = 0; i < processes.Count; i++)
+        {
+            var isHighlighted = highlightIndex.HasValue && highlightIndex.Value == i;
+            var color = isHighlighted ? "yellow" : "cyan1";
+            var indexText = isHighlighted ? $"[{color} bold]> {i + 1}[/]" : $"[{color}]{i + 1}[/]";
+            var proc = processes[i];
+            var nameText = isHighlighted ? $"[{color} bold]{Markup.Escape(proc.ProcessName)}[/]" : $"[{color}]{Markup.Escape(proc.ProcessName)}[/]";
+            var pidText = isHighlighted ? $"[{color} bold]{proc.Pid}[/]" : $"[{color}]{proc.Pid}[/]";
+            var memText = isHighlighted ? $"[{color} bold]{proc.MemoryMb:F1}[/]" : $"[{color}]{proc.MemoryMb:F1}[/]";
+            table.AddRow(indexText, nameText, pidText, memText);
+        }
+
+        if (processes.Count == 0)
+        {
+            table.AddRow("[grey]-[/]", "[grey]Nenhum processo[/]", "[grey]-[/]", "[grey]-[/]");
+        }
+
+        return table;
+    }
+
     private bool TryLoadManageTest(int testeId, string? successMessage = null)
     {
         IReadOnlyList<TesteAtomico> testes;
@@ -891,6 +1061,13 @@ public sealed class ConsoleUI
         _manageResumo = null;
     }
 
+    private void ResetProcessSelectionUnsafe()
+    {
+        _processSelectionOptions = Array.Empty<ProcessSnapshot>();
+        _processSelectionSource = ProcessSelectionSource.None;
+        _selectedProcessIndex = -1;
+    }
+
     private IRenderable BuildFooter()
     {
         InputMode mode;
@@ -903,6 +1080,7 @@ public sealed class ConsoleUI
         {
             InputMode.Navigation => "[grey]Modo: NAVEGACAO - Use [[1-5]] │ [[Q]] Sair │ [[Enter]] Editar campo[/]",
             InputMode.EditingMonitorTarget => "[yellow]Modo: EDITANDO EXECUTAVEL - [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
+            InputMode.SelectingMonitorProcess => "[yellow]Modo: SELECIONANDO PROCESSO - [[↑/↓]] Navegar │ [[Tab]] Alternar lista │ [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
             InputMode.EditingTestId => "[yellow]Modo: EDITANDO ID - [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
             InputMode.EditingManageId => "[yellow]Modo: EDITANDO ID GERENCIAMENTO - [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
             InputMode.EditingManageNumero => "[yellow]Modo: EDITANDO NUMERO - [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
@@ -1067,6 +1245,12 @@ public sealed class ConsoleUI
         {
             lock (_stateLock)
             {
+                if (mode == InputMode.SelectingMonitorProcess)
+                {
+                    ResetProcessSelectionUnsafe();
+                    _statusMessage = "Selecao cancelada.";
+                }
+
                 _inputMode = InputMode.Navigation;
                 _forceRefresh = true;
             }
@@ -1077,6 +1261,9 @@ public sealed class ConsoleUI
         {
             case InputMode.EditingMonitorTarget:
                 await HandleEditMonitorTargetAsync(key).ConfigureAwait(false);
+                break;
+            case InputMode.SelectingMonitorProcess:
+                await HandleSelectMonitorProcessAsync(key).ConfigureAwait(false);
                 break;
             case InputMode.EditingTestId:
                 await HandleEditTestIdAsync(key).ConfigureAwait(false);
@@ -1100,31 +1287,242 @@ public sealed class ConsoleUI
     {
         if (key.Key == ConsoleKey.Enter)
         {
-            // Confirma e volta para navegação
+            string currentTarget;
             lock (_stateLock)
             {
-                _inputMode = InputMode.Navigation;
+                currentTarget = _monitorTarget;
+            }
+
+            IReadOnlyList<ProcessSnapshot> suggestions;
+            IReadOnlyList<ProcessSnapshot> top;
+
+            try
+            {
+                suggestions = string.IsNullOrWhiteSpace(currentTarget)
+                    ? Array.Empty<ProcessSnapshot>()
+                    : _appService.FindProcesses(currentTarget, MaxProcessSelectionOptions);
+            }
+            catch
+            {
+                suggestions = Array.Empty<ProcessSnapshot>();
+            }
+
+            try
+            {
+                top = _appService.GetTopProcesses(MaxProcessSelectionOptions);
+            }
+            catch
+            {
+                top = Array.Empty<ProcessSnapshot>();
+            }
+
+            lock (_stateLock)
+            {
+                _monitorSuggestions = suggestions;
+                _lastSuggestionsUpdate = DateTime.Now;
+                _topProcesses = top;
+                _lastTopProcessesUpdate = DateTime.Now;
+
+                if (suggestions.Count > 0)
+                {
+                    _processSelectionOptions = suggestions;
+                    _processSelectionSource = ProcessSelectionSource.Suggestions;
+                    _selectedProcessIndex = 0;
+                    _inputMode = InputMode.SelectingMonitorProcess;
+                    _statusMessage = $"Selecione o processo correspondente ({suggestions.Count} encontrado(s)).";
+                }
+                else if (top.Count > 0)
+                {
+                    _processSelectionOptions = top;
+                    _processSelectionSource = ProcessSelectionSource.TopProcesses;
+                    _selectedProcessIndex = 0;
+                    _inputMode = InputMode.SelectingMonitorProcess;
+                    _statusMessage = "Nenhum processo correspondente. Utilize o top de processos.";
+                }
+                else
+                {
+                    ResetProcessSelectionUnsafe();
+                    _inputMode = InputMode.Navigation;
+                    _statusMessage = "Nenhum processo em execucao encontrado.";
+                }
+
                 _forceRefresh = true;
             }
+
+            return Task.CompletedTask;
         }
-        else if (key.Key == ConsoleKey.Backspace)
+
+        if (key.Key == ConsoleKey.Backspace)
         {
             lock (_stateLock)
             {
                 if (_monitorTarget.Length > 0)
                 {
                     _monitorTarget = _monitorTarget[..^1];
+                    _lastSuggestionsUpdate = DateTime.MinValue;
+                    ResetProcessSelectionUnsafe();
+                    _monitorSuggestions = Array.Empty<ProcessSnapshot>();
+                    _statusMessage = null;
                     _forceRefresh = true;
                 }
             }
+
+            return Task.CompletedTask;
         }
-        else if (!char.IsControl(key.KeyChar))
+
+        if (!char.IsControl(key.KeyChar))
         {
             lock (_stateLock)
             {
                 _monitorTarget += key.KeyChar;
+                _lastSuggestionsUpdate = DateTime.MinValue;
+                ResetProcessSelectionUnsafe();
+                _monitorSuggestions = Array.Empty<ProcessSnapshot>();
+                _statusMessage = null;
                 _forceRefresh = true;
             }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task HandleSelectMonitorProcessAsync(ConsoleKeyInfo key)
+    {
+        if (key.Key == ConsoleKey.Enter)
+        {
+            lock (_stateLock)
+            {
+                if (_processSelectionOptions.Count == 0 ||
+                    _selectedProcessIndex < 0 ||
+                    _selectedProcessIndex >= _processSelectionOptions.Count)
+                {
+                    _statusMessage = "Selecione um processo valido antes de confirmar.";
+                    _forceRefresh = true;
+                    return Task.CompletedTask;
+                }
+
+                var selected = _processSelectionOptions[_selectedProcessIndex];
+                _monitorTarget = selected.ProcessName;
+
+                // Atualiza sugestoes para mostrar todos os processos homonimos
+                IReadOnlyList<ProcessSnapshot> allMatches;
+                try
+                {
+                    allMatches = _appService.FindProcesses(selected.ProcessName, 100);
+                }
+                catch
+                {
+                    allMatches = new[] { selected };
+                }
+
+                _monitorSuggestions = allMatches;
+                _lastSuggestionsUpdate = DateTime.Now;
+                _statusMessage = $"Alvo configurado: {selected.ProcessName} - {allMatches.Count} processo(s) homonimo(s) serao monitorados.";
+                ResetProcessSelectionUnsafe();
+                _inputMode = InputMode.Navigation;
+                _forceRefresh = true;
+            }
+
+            return Task.CompletedTask;
+        }
+
+        if (key.Key == ConsoleKey.UpArrow || key.Key == ConsoleKey.DownArrow)
+        {
+            var direction = key.Key == ConsoleKey.UpArrow ? -1 : 1;
+
+            lock (_stateLock)
+            {
+                var count = _processSelectionOptions.Count;
+                if (count == 0)
+                {
+                    _statusMessage = "Nenhum processo disponivel para selecao.";
+                    _forceRefresh = true;
+                    return Task.CompletedTask;
+                }
+
+                if (_selectedProcessIndex < 0)
+                {
+                    _selectedProcessIndex = direction > 0 ? 0 : count - 1;
+                }
+                else
+                {
+                    _selectedProcessIndex = (_selectedProcessIndex + direction + count) % count;
+                }
+
+                var current = _processSelectionOptions[_selectedProcessIndex];
+                _statusMessage = $"Selecionado: {current.ProcessName} (PID {current.Pid}).";
+                _forceRefresh = true;
+            }
+
+            return Task.CompletedTask;
+        }
+
+        if (char.IsDigit(key.KeyChar) && key.KeyChar >= '1' && key.KeyChar <= '9')
+        {
+            var desiredIndex = key.KeyChar - '1';
+
+            lock (_stateLock)
+            {
+                if (desiredIndex < _processSelectionOptions.Count)
+                {
+                    _selectedProcessIndex = desiredIndex;
+                    if (_processSelectionOptions.Count > 0)
+                    {
+                        var current = _processSelectionOptions[_selectedProcessIndex];
+                        _statusMessage = $"Selecionado: {current.ProcessName} (PID {current.Pid}).";
+                    }
+                }
+                else
+                {
+                    _statusMessage = "Indice fora da lista de processos.";
+                }
+
+                _forceRefresh = true;
+            }
+
+            return Task.CompletedTask;
+        }
+
+        if (key.Key == ConsoleKey.Tab)
+        {
+            lock (_stateLock)
+            {
+                if (_monitorSuggestions.Count > 0 && _topProcesses.Count > 0)
+                {
+                    if (_processSelectionSource == ProcessSelectionSource.Suggestions)
+                    {
+                        _processSelectionSource = ProcessSelectionSource.TopProcesses;
+                        _processSelectionOptions = _topProcesses;
+                    }
+                    else
+                    {
+                        _processSelectionSource = ProcessSelectionSource.Suggestions;
+                        _processSelectionOptions = _monitorSuggestions;
+                    }
+
+                    if (_processSelectionOptions.Count > 0)
+                    {
+                        _selectedProcessIndex = Math.Min(
+                            _selectedProcessIndex < 0 ? 0 : _selectedProcessIndex,
+                            _processSelectionOptions.Count - 1);
+                        var current = _processSelectionOptions[_selectedProcessIndex];
+                        _statusMessage = $"Fonte alterada: {(_processSelectionSource == ProcessSelectionSource.Suggestions ? "Sugestoes" : "Top processos")} - {current.ProcessName} (PID {current.Pid}).";
+                    }
+                    else
+                    {
+                        _selectedProcessIndex = -1;
+                        _statusMessage = "Lista de processos vazia apos alternar fonte.";
+                    }
+                }
+                else
+                {
+                    _statusMessage = "Nao ha outra lista de processos para alternar.";
+                }
+
+                _forceRefresh = true;
+            }
+
+            return Task.CompletedTask;
         }
 
         return Task.CompletedTask;
@@ -1184,12 +1582,42 @@ public sealed class ConsoleUI
                 return;
             }
 
+            var trimmedTarget = target.Trim();
+            IReadOnlyList<ProcessSnapshot> matches;
             try
             {
-                _appService.StartMonitoring(target.Trim());
+                matches = _appService.FindProcesses(trimmedTarget, MaxProcessSelectionOptions);
+            }
+            catch
+            {
+                matches = Array.Empty<ProcessSnapshot>();
+            }
+
+            if (matches.Count == 0)
+            {
                 lock (_stateLock)
                 {
-                    _statusMessage = $"Monitoramento iniciado: {target}";
+                    _statusMessage = "Nenhum processo ativo encontrado com esse nome.";
+                    _forceRefresh = true;
+                }
+                return;
+            }
+
+            var resolvedTarget = matches.Any(m => m.ProcessName.Equals(trimmedTarget, StringComparison.OrdinalIgnoreCase))
+                ? trimmedTarget
+                : matches[0].ProcessName;
+
+            try
+            {
+                _appService.StartMonitoring(resolvedTarget);
+                lock (_stateLock)
+                {
+                    _monitorTarget = resolvedTarget;
+                    _monitorSuggestions = matches;
+                    _lastSuggestionsUpdate = DateTime.Now;
+                    ResetProcessSelectionUnsafe();
+                    _inputMode = InputMode.Navigation;
+                    _statusMessage = $"Monitoramento iniciado: {resolvedTarget} - Rastreando {matches.Count} processo(s) homonimo(s) + filhos";
                     _forceRefresh = true;
                 }
             }
@@ -1227,7 +1655,10 @@ public sealed class ConsoleUI
             lock (_stateLock)
             {
                 _monitorTarget = string.Empty;
+                _monitorSuggestions = Array.Empty<ProcessSnapshot>();
+                ResetProcessSelectionUnsafe();
                 _statusMessage = null;
+                _lastSuggestionsUpdate = DateTime.MinValue;
                 _forceRefresh = true;
             }
         }
@@ -1485,6 +1916,7 @@ public sealed class ConsoleUI
     {
         Navigation,
         EditingMonitorTarget,
+        SelectingMonitorProcess,
         EditingTestId,
         EditingManageId,
         EditingManageNumero,
@@ -1508,5 +1940,12 @@ public sealed class ConsoleUI
         Medio,
         Alto,
         Severo
+    }
+
+    private enum ProcessSelectionSource
+    {
+        None,
+        Suggestions,
+        TopProcesses
     }
 }

@@ -1,6 +1,6 @@
-using NavShieldTracer.Modules.Storage;
-using NavShieldTracer.Services;
-using NavShieldTracer.UI;
+using NavShieldTracer.Storage;
+using NavShieldTracer.ConsoleApp.Services;
+using NavShieldTracer.ConsoleApp.UI;
 using Spectre.Console;
 
 if (Console.IsOutputRedirected)

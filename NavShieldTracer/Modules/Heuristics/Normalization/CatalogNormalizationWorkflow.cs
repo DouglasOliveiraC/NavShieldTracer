@@ -1,4 +1,5 @@
-using NavShieldTracer.Modules.Storage;
+using NavShieldTracer.Modules.Models;
+using NavShieldTracer.Storage;
 
 namespace NavShieldTracer.Modules.Heuristics.Normalization
 {

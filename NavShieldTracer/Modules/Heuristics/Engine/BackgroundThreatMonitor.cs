@@ -4,7 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NavShieldTracer.Modules.Heuristics.Normalization;
-using NavShieldTracer.Modules.Storage;
+using NavShieldTracer.Storage;
 
 namespace NavShieldTracer.Modules.Heuristics.Engine
 {

@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using NavShieldTracer.Modules.Storage;
+using NavShieldTracer.Modules.Models;
 
 namespace NavShieldTracer.Modules.Heuristics.Normalization
 {

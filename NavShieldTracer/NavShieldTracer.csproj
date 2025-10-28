@@ -24,6 +24,11 @@
     <PackageReference Include="RazorConsole.Core" Version="0.0.5" />
   </ItemGroup>
 
-</Project>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>NavShieldTracer.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
 
+</Project>
 

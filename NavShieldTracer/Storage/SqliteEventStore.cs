@@ -9,8 +9,9 @@ using Microsoft.Data.Sqlite;
 using NavShieldTracer.Modules.Models;
 using NavShieldTracer.Modules.Heuristics.Normalization;
 using NavShieldTracer.Modules.Heuristics.Engine;
+using Heuristics = NavShieldTracer.Modules.Heuristics;
 
-namespace NavShieldTracer.Modules.Storage
+namespace NavShieldTracer.Storage
 {
     /// <summary>
     /// Implementacao de armazenamento de eventos do Sysmon usando banco de dados SQLite.

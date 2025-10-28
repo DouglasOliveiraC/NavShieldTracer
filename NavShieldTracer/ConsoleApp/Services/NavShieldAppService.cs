@@ -9,9 +9,10 @@ using System.Threading.Tasks;
 using NavShieldTracer.Modules.Diagnostics;
 using NavShieldTracer.Modules.Heuristics.Normalization;
 using NavShieldTracer.Modules.Monitoring;
-using NavShieldTracer.Modules.Storage;
+using NavShieldTracer.Modules.Models;
+using NavShieldTracer.Storage;
 
-namespace NavShieldTracer.Services;
+namespace NavShieldTracer.ConsoleApp.Services;
 
 /// <summary>
 /// Serviço principal da aplicação NavShieldTracer que coordena monitoramento de processos,
@@ -143,6 +144,89 @@ public sealed class NavShieldAppService : IDisposable
                     p.Id,
                     memoryMb);
             })
+            .ToList();
+    }
+
+    /// <summary>
+    /// Localiza processos em execução cujo nome corresponde parcial ou totalmente ao texto informado.
+    /// </summary>
+    /// <param name="query">Texto digitado pelo usuário, com ou sem extensão.</param>
+    /// <param name="maxResults">Quantidade máxima de resultados a retornar (padrão: 9).</param>
+    /// <returns>Lista de processos ordenados por relevância.</returns>
+    public IReadOnlyList<ProcessSnapshot> FindProcesses(string query, int maxResults = 9)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return Array.Empty<ProcessSnapshot>();
+        }
+
+        Process[] processes;
+        try
+        {
+            processes = Process.GetProcesses();
+        }
+        catch
+        {
+            return Array.Empty<ProcessSnapshot>();
+        }
+
+        var normalized = NormalizeExecutable(query);
+        var desiredName = Path.GetFileNameWithoutExtension(normalized);
+        if (string.IsNullOrEmpty(desiredName))
+        {
+            return Array.Empty<ProcessSnapshot>();
+        }
+
+        var results = new List<(ProcessSnapshot Snapshot, int Score)>();
+
+        foreach (var process in processes)
+        {
+            string? name;
+            try
+            {
+                name = process.ProcessName;
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            var score = ComputeMatchScore(name, desiredName);
+            if (score is null)
+            {
+                continue;
+            }
+
+            double memoryMb;
+            try
+            {
+                memoryMb = process.WorkingSet64 / (1024d * 1024d);
+            }
+            catch
+            {
+                memoryMb = 0d;
+            }
+
+            results.Add((new ProcessSnapshot($"{name}.exe", process.Id, memoryMb), score.Value));
+        }
+
+        if (results.Count == 0)
+        {
+            return Array.Empty<ProcessSnapshot>();
+        }
+
+        var max = Math.Max(1, maxResults);
+        return results
+            .OrderBy(r => r.Score)
+            .ThenBy(r => r.Snapshot.ProcessName, StringComparer.OrdinalIgnoreCase)
+            .ThenByDescending(r => r.Snapshot.MemoryMb)
+            .Take(max)
+            .Select(r => r.Snapshot)
             .ToList();
     }
 
@@ -454,6 +538,36 @@ public sealed class NavShieldAppService : IDisposable
         return trimmed;
     }
 
+    private static int? ComputeMatchScore(string candidate, string target)
+    {
+        if (string.IsNullOrEmpty(candidate) || string.IsNullOrEmpty(target))
+        {
+            return null;
+        }
+
+        if (candidate.Equals(target, StringComparison.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
+        if (candidate.StartsWith(target, StringComparison.OrdinalIgnoreCase))
+        {
+            return 1;
+        }
+
+        if (candidate.Contains(target, StringComparison.OrdinalIgnoreCase))
+        {
+            return 2;
+        }
+
+        if (target.Contains(candidate, StringComparison.OrdinalIgnoreCase))
+        {
+            return 3;
+        }
+
+        return null;
+    }
+
     private static int TryResolveProcessId(string executableName)
     {
         try
@@ -663,5 +777,3 @@ public sealed class MonitoringSession
     /// <returns>Lista de mensagens de log formatadas com timestamp.</returns>
     public IReadOnlyList<string> GetLogs() => _logs.ToArray();
 }
-
-

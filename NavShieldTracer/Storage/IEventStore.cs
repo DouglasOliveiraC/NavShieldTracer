@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
+using NavShieldTracer.Modules.Models;
 
-namespace NavShieldTracer.Modules.Storage
+namespace NavShieldTracer.Storage
 {
     /// <summary>
     /// Informações da sessão de monitoramento
@@ -122,4 +123,3 @@ namespace NavShieldTracer.Modules.Storage
         Dictionary<int, int> GetCriticalEventCounts(int sessionId);
     }
 }
-
