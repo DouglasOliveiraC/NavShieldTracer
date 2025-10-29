@@ -126,7 +126,8 @@ namespace NavShieldTracer.Storage
                 host TEXT,
                 user TEXT,
                 os_version TEXT,
-                notes TEXT
+                notes TEXT,
+                user_notes TEXT
             );
 
             CREATE TABLE IF NOT EXISTS events (
@@ -344,6 +345,7 @@ namespace NavShieldTracer.Storage
             EnsureColumnExists(tx, "atomic_tests", "tarja", "TEXT");
             EnsureColumnExists(tx, "atomic_tests", "tarja_reason", "TEXT");
             EnsureColumnExists(tx, "atomic_tests", "normalization_status", "TEXT DEFAULT 'Pending'");
+            EnsureColumnExists(tx, "sessions", "user_notes", "TEXT");
         }
 
         /// <summary>
@@ -1080,6 +1082,227 @@ namespace NavShieldTracer.Storage
             ";
             cmd.Parameters.AddWithValue("$id", testeId);
             cmd.ExecuteNonQuery();
+        }
+
+        /// <summary>
+        /// Obtém as informações completas de um teste atômico incluindo metadados de normalização
+        /// </summary>
+        /// <param name="testeId">ID do teste</param>
+        /// <returns>Informações completas do teste ou null se não encontrado</returns>
+        public TesteAtomicoCompleto? ObterTesteAtomicoCompleto(int testeId)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT
+                    at.id, at.numero, at.nome, at.descricao, at.data_execucao,
+                    at.session_id, at.total_eventos,
+                    at.tarja, at.tarja_reason, at.normalization_status, at.normalized_at,
+                    s.user_notes
+                FROM atomic_tests at
+                LEFT JOIN sessions s ON at.session_id = s.id
+                WHERE at.id = $id;
+            ";
+            cmd.Parameters.AddWithValue("$id", testeId);
+
+            using var reader = cmd.ExecuteReader();
+            if (!reader.Read())
+            {
+                return null;
+            }
+
+            var dataExecucaoRaw = reader.IsDBNull(4) ? null : reader.GetString(4);
+            DateTime dataExecucao = DateTime.Now;
+            if (!string.IsNullOrWhiteSpace(dataExecucaoRaw))
+            {
+                if (!DateTime.TryParse(dataExecucaoRaw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out dataExecucao))
+                {
+                    DateTime.TryParse(dataExecucaoRaw, out dataExecucao);
+                }
+            }
+
+            DateTime? normalizedAt = null;
+            if (!reader.IsDBNull(10))
+            {
+                var normalizedAtRaw = reader.GetString(10);
+                if (DateTime.TryParse(normalizedAtRaw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var normalizedAtParsed))
+                {
+                    normalizedAt = normalizedAtParsed;
+                }
+                else if (DateTime.TryParse(normalizedAtRaw, out normalizedAtParsed))
+                {
+                    normalizedAt = normalizedAtParsed;
+                }
+            }
+
+            return new TesteAtomicoCompleto(
+                reader.GetInt32(0),                                         // Id
+                reader.GetString(1),                                        // Numero
+                reader.GetString(2),                                        // Nome
+                reader.IsDBNull(3) ? string.Empty : reader.GetString(3),  // Descricao
+                dataExecucao,                                               // DataExecucao
+                reader.GetInt32(5),                                         // SessionId
+                reader.IsDBNull(6) ? 0 : reader.GetInt32(6),              // TotalEventos
+                reader.IsDBNull(7) ? null : reader.GetString(7),          // Tarja
+                reader.IsDBNull(8) ? null : reader.GetString(8),          // TarjaReason
+                reader.IsDBNull(9) ? null : reader.GetString(9),          // NormalizationStatus
+                normalizedAt,                                               // NormalizedAt
+                reader.IsDBNull(11) ? null : reader.GetString(11)         // Notes (user_notes)
+            );
+        }
+
+        /// <summary>
+        /// Atualiza a tarja (severidade) de um teste atômico
+        /// </summary>
+        /// <param name="testeId">ID do teste</param>
+        /// <param name="tarja">Nova tarja (Verde, Amarelo, Laranja, Vermelho)</param>
+        /// <param name="tarjaReason">Justificativa da tarja (opcional)</param>
+        public void AtualizarTarjaTesteAtomico(int testeId, string tarja, string? tarjaReason = null)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                UPDATE atomic_tests
+                SET tarja = $tarja, tarja_reason = $tarja_reason
+                WHERE id = $id;
+            ";
+            cmd.Parameters.AddWithValue("$tarja", tarja);
+            cmd.Parameters.AddWithValue("$tarja_reason", (object?)tarjaReason ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$id", testeId);
+            cmd.ExecuteNonQuery();
+        }
+
+        /// <summary>
+        /// Atualiza as notas/observações de uma sessão de monitoramento
+        /// </summary>
+        /// <param name="sessionId">ID da sessão</param>
+        /// <param name="notes">Novas notas do usuário (substitui as existentes)</param>
+        public void AtualizarNotasSessao(int sessionId, string? notes)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                UPDATE sessions
+                SET user_notes = $notes
+                WHERE id = $id;
+            ";
+            cmd.Parameters.AddWithValue("$notes", (object?)notes ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$id", sessionId);
+            cmd.ExecuteNonQuery();
+        }
+
+        /// <summary>
+        /// Salva metadados de review pós-catalogação: observações, tarja e whitelist.
+        /// </summary>
+        /// <param name="testeId">ID do teste atômico catalogado.</param>
+        /// <param name="observacoes">Observações sobre o teste (opcional).</param>
+        /// <param name="tarja">Nível de alerta/tarja (Verde, Amarelo, Laranja, Vermelho).</param>
+        /// <param name="whitelistEntries">Lista de IPs/domínios para whitelist de rede.</param>
+        public void SalvarReviewTeste(int testeId, string? observacoes, string tarja, IReadOnlyList<string> whitelistEntries)
+        {
+            using var tx = _conn.BeginTransaction();
+            try
+            {
+                // Atualizar campos de observações e tarja na tabela atomic_tests
+                using (var cmdUpdate = _conn.CreateCommand())
+                {
+                    cmdUpdate.Transaction = tx;
+                    cmdUpdate.CommandText = @"
+                        UPDATE atomic_tests
+                        SET descricao = COALESCE($observacoes, descricao),
+                            tarja = $tarja,
+                            tarja_reason = 'Manual review'
+                        WHERE id = $id;
+                    ";
+                    cmdUpdate.Parameters.AddWithValue("$id", testeId);
+                    cmdUpdate.Parameters.AddWithValue("$observacoes", (object?)observacoes ?? DBNull.Value);
+                    cmdUpdate.Parameters.AddWithValue("$tarja", tarja);
+                    cmdUpdate.ExecuteNonQuery();
+                }
+
+                // Verificar se existe assinatura normalizada para este teste
+                int? signatureId = null;
+                using (var cmdGetSignature = _conn.CreateCommand())
+                {
+                    cmdGetSignature.Transaction = tx;
+                    cmdGetSignature.CommandText = "SELECT id FROM normalized_test_signatures WHERE test_id = $test_id;";
+                    cmdGetSignature.Parameters.AddWithValue("$test_id", testeId);
+                    var result = cmdGetSignature.ExecuteScalar();
+                    if (result != null && result != DBNull.Value)
+                    {
+                        signatureId = Convert.ToInt32(result);
+                    }
+                }
+
+                // Se não existe assinatura, criar uma temporária para armazenar whitelist
+                if (!signatureId.HasValue && whitelistEntries.Count > 0)
+                {
+                    using (var cmdCreateSignature = _conn.CreateCommand())
+                    {
+                        cmdCreateSignature.Transaction = tx;
+                        cmdCreateSignature.CommandText = @"
+                            INSERT INTO normalized_test_signatures (
+                                test_id, signature_hash, status, severity_label,
+                                feature_vector_json, total_events, core_event_count,
+                                support_event_count, noise_event_count, processed_at
+                            ) VALUES (
+                                $test_id, 'manual_review', 'Pending', $tarja,
+                                '{}', 0, 0, 0, 0, $now
+                            );
+                        ";
+                        cmdCreateSignature.Parameters.AddWithValue("$test_id", testeId);
+                        cmdCreateSignature.Parameters.AddWithValue("$tarja", tarja);
+                        cmdCreateSignature.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("O"));
+                        cmdCreateSignature.ExecuteNonQuery();
+
+                        // Obter ID da assinatura recém-criada
+                        using var cmdGetId = _conn.CreateCommand();
+                        cmdGetId.Transaction = tx;
+                        cmdGetId.CommandText = "SELECT last_insert_rowid();";
+                        signatureId = Convert.ToInt32(cmdGetId.ExecuteScalar());
+                    }
+                }
+
+                // Inserir entradas de whitelist
+                if (signatureId.HasValue && whitelistEntries.Count > 0)
+                {
+                    // Limpar whitelist existente
+                    using (var cmdDelWhitelist = _conn.CreateCommand())
+                    {
+                        cmdDelWhitelist.Transaction = tx;
+                        cmdDelWhitelist.CommandText = "DELETE FROM normalized_whitelist_entries WHERE signature_id = $sig_id;";
+                        cmdDelWhitelist.Parameters.AddWithValue("$sig_id", signatureId.Value);
+                        cmdDelWhitelist.ExecuteNonQuery();
+                    }
+
+                    // Inserir novas entradas
+                    foreach (var entry in whitelistEntries)
+                    {
+                        using var cmdInsert = _conn.CreateCommand();
+                        cmdInsert.Transaction = tx;
+
+                        // Detectar tipo de entrada (IP vs domínio)
+                        var entryType = System.Net.IPAddress.TryParse(entry, out _) ? "IP" : "DOMAIN";
+
+                        cmdInsert.CommandText = @"
+                            INSERT INTO normalized_whitelist_entries (
+                                signature_id, entry_type, value, reason, approved, auto_generated
+                            ) VALUES (
+                                $sig_id, $type, $value, $reason, 1, 0
+                            );
+                        ";
+                        cmdInsert.Parameters.AddWithValue("$sig_id", signatureId.Value);
+                        cmdInsert.Parameters.AddWithValue("$type", entryType);
+                        cmdInsert.Parameters.AddWithValue("$value", entry);
+                        cmdInsert.Parameters.AddWithValue("$reason", "Manual review whitelist");
+                        cmdInsert.ExecuteNonQuery();
+                    }
+                }
+
+                tx.Commit();
+            }
+            catch
+            {
+                tx.Rollback();
+                throw;
+            }
         }
 
         /// <summary>

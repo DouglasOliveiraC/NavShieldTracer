@@ -73,12 +73,38 @@ namespace NavShieldTracer.Modules.Monitoring
                 _logger($"Detectados {existingProcesses.Length} processos existentes de '{_targetExecutableName}'. Iniciando monitoramento.");
                 foreach (var process in existingProcesses)
                 {
+                    string fallbackImage = $"{process.ProcessName}.exe";
+                    DateTime? startTime = null;
+
                     try
                     {
-                        string imagePath = process.MainModule?.FileName ?? (process.ProcessName + ".exe");
+                        string imagePath;
+                        try
+                        {
+                            imagePath = process.MainModule?.FileName ?? fallbackImage;
+                        }
+                        catch (Win32Exception ex)
+                        {
+                            imagePath = fallbackImage;
+                            _logger($"Aviso: acesso negado ao obter caminho completo do processo existente (PID: {process.Id}). Usando nome basico '{imagePath}'. Detalhes: {ex.Message}");
+                        }
+
+                        try
+                        {
+                            startTime = process.StartTime;
+                        }
+                        catch (Win32Exception ex)
+                        {
+                            startTime = DateTime.Now;
+                            _logger($"Aviso: acesso negado ao obter horario de inicio do processo existente (PID: {process.Id}). Usando instante atual como referencia. Detalhes: {ex.Message}");
+                        }
+
                         if (_monitoredPids.TryAdd(process.Id, imagePath))
                         {
-                            _processStartTimes.TryAdd(process.Id, process.StartTime);
+                            if (startTime.HasValue)
+                            {
+                                _processStartTimes.TryAdd(process.Id, startTime.Value);
+                            }
                             System.Threading.Interlocked.Increment(ref _totalProcessesTracked);
                             _logger($"Monitorando processo existente: '{imagePath}' (PID: {process.Id})");
                         }

@@ -54,4 +54,34 @@ namespace NavShieldTracer.Modules.Models
         int TotalEventos,
         Dictionary<int, int> EventosPorTipo
     );
+
+    /// <summary>
+    /// Informações completas de um teste atômico incluindo metadados de normalização
+    /// </summary>
+    /// <param name="Id">ID único do teste no banco</param>
+    /// <param name="Numero">Número do teste (ex: T1055)</param>
+    /// <param name="Nome">Nome do teste (ex: Process Injection)</param>
+    /// <param name="Descricao">Descrição detalhada do teste</param>
+    /// <param name="DataExecucao">Data e hora de execução do teste</param>
+    /// <param name="SessionId">ID da sessão de monitoramento associada</param>
+    /// <param name="TotalEventos">Total de eventos capturados durante o teste</param>
+    /// <param name="Tarja">Nível de severidade/alerta (Verde, Amarelo, Laranja, Vermelho)</param>
+    /// <param name="TarjaReason">Justificativa da tarja atribuída</param>
+    /// <param name="NormalizationStatus">Status da normalização (Pending, Completed, Failed)</param>
+    /// <param name="NormalizedAt">Data/hora da normalização</param>
+    /// <param name="Notes">Observações/notas sobre o teste</param>
+    public record TesteAtomicoCompleto(
+        int Id,
+        string Numero,
+        string Nome,
+        string Descricao,
+        DateTime DataExecucao,
+        int SessionId,
+        int TotalEventos,
+        string? Tarja,
+        string? TarjaReason,
+        string? NormalizationStatus,
+        DateTime? NormalizedAt,
+        string? Notes
+    );
 }

@@ -495,6 +495,73 @@ public sealed class NavShieldAppService : IDisposable
     }
 
     /// <summary>
+    /// Obtém as informações completas de um teste atômico incluindo metadados de normalização.
+    /// </summary>
+    /// <param name="testeId">ID do teste a ser consultado.</param>
+    /// <returns>Informações completas do teste ou null se não encontrado.</returns>
+    public TesteAtomicoCompleto? ObterTesteCompleto(int testeId) => _store.ObterTesteAtomicoCompleto(testeId);
+
+    /// <summary>
+    /// Atualiza a tarja (severidade) de um teste atômico.
+    /// </summary>
+    /// <param name="testeId">ID do teste a ser atualizado.</param>
+    /// <param name="tarja">Nova tarja (Verde, Amarelo, Laranja, Vermelho).</param>
+    /// <param name="tarjaReason">Justificativa da tarja (opcional).</param>
+    /// <returns>True se atualizado com sucesso, false caso contrário.</returns>
+    public bool AtualizarTarja(int testeId, string tarja, string? tarjaReason = null)
+    {
+        try
+        {
+            _store.AtualizarTarjaTesteAtomico(testeId, tarja, tarjaReason);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Atualiza as notas/observações de uma sessão de monitoramento.
+    /// </summary>
+    /// <param name="sessionId">ID da sessão a ser atualizada.</param>
+    /// <param name="notes">Novas notas (substitui as existentes).</param>
+    /// <returns>True se atualizado com sucesso, false caso contrário.</returns>
+    public bool AtualizarNotas(int sessionId, string? notes)
+    {
+        try
+        {
+            _store.AtualizarNotasSessao(sessionId, notes);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Salva metadados de review pós-catalogação: observações, nível de alerta e whitelist.
+    /// </summary>
+    /// <param name="testeId">ID do teste atômico catalogado.</param>
+    /// <param name="tarja">Nível de alerta (Verde, Amarelo, Laranja, Vermelho).</param>
+    /// <param name="observacoes">Observações sobre o teste (opcional).</param>
+    /// <param name="whitelistEntries">Lista de IPs/domínios para whitelist de rede.</param>
+    /// <returns>True se salvo com sucesso, false caso contrário.</returns>
+    public bool SaveTestReview(int testeId, string tarja, string? observacoes, IReadOnlyList<string> whitelistEntries)
+    {
+        try
+        {
+            _store.SalvarReviewTeste(testeId, observacoes, tarja, whitelistEntries);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Exclui um teste atômico catalogado do banco de dados.
     /// </summary>
     /// <param name="testeId">ID do teste a ser excluído.</param>
