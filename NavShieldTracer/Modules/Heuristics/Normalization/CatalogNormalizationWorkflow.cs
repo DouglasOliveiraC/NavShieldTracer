@@ -37,7 +37,6 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
 
             Console.WriteLine("\n Normalização registrada com sucesso.");
             Console.WriteLine($"   - Tarja final: {resultadoAjustado.Signature.Severity}");
-            Console.WriteLine($"   - Itens aprovados em whitelist: {resultadoAjustado.SuggestedWhitelist.Count(e => e.Approved)}");
         }
 
         private void ApresentarResumo(TesteAtomico teste, CatalogNormalizationResult resultado)
@@ -61,52 +60,15 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
                     Console.WriteLine($"  - {warning}");
                 }
             }
-
-            if (resultado.SuggestedWhitelist.Count > 0)
-            {
-                Console.WriteLine("\nSugestões de whitelist detectadas:");
-                foreach (var entry in resultado.SuggestedWhitelist)
-                {
-                    var status = entry.AutoApproved ? "auto" : "manual";
-                    Console.WriteLine($"  - [{entry.EntryType}] {entry.Value} :: {entry.Reason} ({status})");
-                }
-            }
-            else
-            {
-                Console.WriteLine("\nNenhuma sugestão de whitelist para este teste.");
-            }
         }
 
         private CatalogNormalizationResult ColetarFeedbackUsuario(CatalogNormalizationResult resultado)
         {
-            var whitelistAtualizada = new List<SuggestedWhitelistEntry>();
-
-            if (resultado.SuggestedWhitelist.Count > 0)
-            {
-                Console.WriteLine("\nAjuste das sugestões de whitelist:");
-                int indice = 1;
-                foreach (var entry in resultado.SuggestedWhitelist)
-                {
-                    var prompt = $"[{indice}] Aprovar [{entry.EntryType}] {entry.Value}?";
-                    var aprovado = PerguntarSimNao(prompt, entry.AutoApproved);
-                    whitelistAtualizada.Add(entry with { Approved = aprovado });
-                    indice++;
-                }
-            }
-            else
-            {
-                whitelistAtualizada.AddRange(resultado.SuggestedWhitelist);
-            }
-
             var severidade = AjustarSeveridade(resultado.Signature);
 
             var logs = resultado.Logs.ToList();
             logs.Add(new NormalizationLogEntry("MANUAL", "INFO",
                 $"Analista confirmou tarja {severidade.Severity} com razão '{severidade.Reason}'."));
-
-            var aprovados = whitelistAtualizada.Count(e => e.Approved);
-            logs.Add(new NormalizationLogEntry("MANUAL", "INFO",
-                $"Whitelist final contém {aprovados}/{whitelistAtualizada.Count} entradas aprovadas."));
 
             var assinaturaAtualizada = resultado.Signature with
             {
@@ -117,7 +79,6 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
             return resultado with
             {
                 Signature = assinaturaAtualizada,
-                SuggestedWhitelist = whitelistAtualizada,
                 Logs = logs
             };
         }

@@ -31,11 +31,19 @@ public sealed class MonitorView : IConsoleView
     private DateTime _lastTopProcessesUpdate = DateTime.MinValue;
     private int _selectedProcessIndex = -1;
 
+    /// <summary>
+    /// Cria uma nova instância da view de monitoramento.
+    /// </summary>
+    /// <param name="context">Contexto compartilhado de views.</param>
     public MonitorView(ViewContext context)
     {
         _context = context;
     }
 
+    /// <summary>
+    /// Constrói o conteúdo visual da view.
+    /// </summary>
+    /// <param name="now">Timestamp atual.</param>
     public IRenderable BuildContent(DateTime now)
     {
         var activeSession = _context.AppService.GetActiveSessionSnapshot();
@@ -146,6 +154,10 @@ public sealed class MonitorView : IConsoleView
         return grid;
     }
 
+    /// <summary>
+    /// Processa entrada do usuário em modo navegação.
+    /// </summary>
+    /// <param name="key">Tecla pressionada.</param>
     public async Task HandleNavigationInputAsync(ConsoleKeyInfo key)
     {
         if (key.Key == ConsoleKey.M)
@@ -162,6 +174,11 @@ public sealed class MonitorView : IConsoleView
         }
     }
 
+    /// <summary>
+    /// Processa entrada do usuário em modo edição.
+    /// </summary>
+    /// <param name="key">Tecla pressionada.</param>
+    /// <param name="mode">Modo de edição atual.</param>
     public async Task HandleEditModeInputAsync(ConsoleKeyInfo key, InputMode mode)
     {
         if (mode == InputMode.EditingMonitorTarget)
@@ -174,6 +191,9 @@ public sealed class MonitorView : IConsoleView
         }
     }
 
+    /// <summary>
+    /// Retorna o modo de edição padrão ao pressionar Enter.
+    /// </summary>
     public InputMode? GetDefaultEditMode()
     {
         return InputMode.EditingMonitorTarget;
@@ -626,6 +646,14 @@ public sealed class MonitorView : IConsoleView
         _ => "green"
     };
 
+    /// <summary>
+    /// Obtém o nome do processo alvo de monitoramento.
+    /// </summary>
     public string GetMonitorTarget() => _monitorTarget;
+
+    /// <summary>
+    /// Define o nome do processo alvo de monitoramento.
+    /// </summary>
+    /// <param name="value">Nome do processo.</param>
     public void SetMonitorTarget(string value) { lock (_context.StateLock) { _monitorTarget = value; } }
 }

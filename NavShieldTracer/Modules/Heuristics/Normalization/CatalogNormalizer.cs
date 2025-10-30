@@ -9,26 +9,23 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
 {
     /// <summary>
     /// Orquestra a normalização do catálogo, combinando segregação, extração de features,
-    /// recomendações de whitelist e avaliação de qualidade.
+    /// e avaliação de qualidade.
     /// </summary>
     internal class CatalogNormalizer
     {
         private readonly EventSegregator _segregator;
         private readonly FeatureVectorFactory _featureFactory;
-        private readonly WhitelistAdvisor _whitelistAdvisor;
         private readonly QualityAssessor _qualityAssessor;
         private readonly ThreatSeverityAdvisor _severityAdvisor;
 
         internal CatalogNormalizer(
             EventSegregator? segregator = null,
             FeatureVectorFactory? featureFactory = null,
-            WhitelistAdvisor? whitelistAdvisor = null,
             QualityAssessor? qualityAssessor = null,
             ThreatSeverityAdvisor? severityAdvisor = null)
         {
             _segregator = segregator ?? new EventSegregator();
             _featureFactory = featureFactory ?? new FeatureVectorFactory();
-            _whitelistAdvisor = whitelistAdvisor ?? new WhitelistAdvisor();
             _qualityAssessor = qualityAssessor ?? new QualityAssessor();
             _severityAdvisor = severityAdvisor ?? new ThreatSeverityAdvisor();
         }
@@ -82,7 +79,6 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
             return new CatalogNormalizationResult(
                 emptySignature,
                 emptySegregation,
-                Array.Empty<SuggestedWhitelistEntry>(),
                 emptyQuality,
                 logs);
         }
@@ -92,7 +88,6 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
 
             var segregation = _segregator.Segregate(context, logs);
             var featureVector = _featureFactory.Build(context, segregation, logs);
-            var whitelist = _whitelistAdvisor.Suggest(context, segregation, logs);
             var quality = _qualityAssessor.Evaluate(context, segregation, logs);
             var severityDecision = _severityAdvisor.Suggest(context, segregation, quality, logs);
 
@@ -119,7 +114,6 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
             return new CatalogNormalizationResult(
                 signature,
                 segregation,
-                whitelist,
                 quality,
                 logs);
         }
@@ -265,10 +259,44 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
             // Evento de rede para IP externo com protocolo claro.
             if (evento.EventId == 3 && !string.IsNullOrWhiteSpace(evento.DstIp))
             {
-                return !WhitelistAdvisor.IsPrivateIp(evento.DstIp);
+                return !IsPrivateIp(evento.DstIp);
             }
 
             return false;
+        }
+
+        private static bool IsPrivateIp(string? ip)
+        {
+            if (string.IsNullOrWhiteSpace(ip))
+            {
+                return false;
+            }
+
+            if (!IPAddress.TryParse(ip, out var address))
+            {
+                return false;
+            }
+
+            var bytes = address.GetAddressBytes();
+
+            return address.AddressFamily switch
+            {
+                System.Net.Sockets.AddressFamily.InterNetwork => IsPrivateIpv4(bytes),
+                System.Net.Sockets.AddressFamily.InterNetworkV6 => address.IsIPv6LinkLocal || address.IsIPv6SiteLocal || address.IsIPv6Multicast || address.Equals(IPAddress.IPv6Loopback),
+                _ => false
+            };
+        }
+
+        private static bool IsPrivateIpv4(ReadOnlySpan<byte> bytes)
+        {
+            return bytes[0] switch
+            {
+                10 => true,
+                172 when bytes[1] >= 16 && bytes[1] <= 31 => true,
+                192 when bytes[1] == 168 => true,
+                127 => true,
+                _ => false
+            };
         }
 
         private static bool HasImportantContext(CatalogEventSnapshot evento)
@@ -390,121 +418,6 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
             }
 
             return maxDepth;
-        }
-    }
-
-    internal class WhitelistAdvisor
-    {
-        private static readonly string[] TrustedDomains =
-        {
-            ".microsoft.com",
-            ".windowsupdate.com",
-            ".office365.com",
-            ".github.com",
-            ".azureedge.net",
-            ".google.com"
-        };
-
-        public IReadOnlyList<SuggestedWhitelistEntry> Suggest(
-            NormalizationContext context,
-            EventSegregationResult segregation,
-            IList<NormalizationLogEntry> logs)
-        {
-            var entries = new Dictionary<string, SuggestedWhitelistEntry>(StringComparer.OrdinalIgnoreCase);
-
-            void AddEntry(string type, string value, string reason, bool autoApprove)
-            {
-                if (string.IsNullOrWhiteSpace(value))
-                {
-                    return;
-                }
-
-                var normalizedValue = value.Trim();
-                var key = $"{type}:{normalizedValue}".ToLowerInvariant();
-                if (entries.ContainsKey(key))
-                {
-                    return;
-                }
-
-                var entry = new SuggestedWhitelistEntry(
-                    type,
-                    normalizedValue,
-                    reason,
-                    autoApprove,
-                    autoApprove);
-
-                entries[key] = entry;
-                logs.Add(new NormalizationLogEntry("WHITELIST", "INFO",
-                    $"Sugerido whitelist [{type}] {value} ({reason}) - auto={autoApprove}."));
-            }
-
-            foreach (var evento in context.Eventos)
-            {
-                if (!string.IsNullOrWhiteSpace(evento.DstIp))
-                {
-                    if (IsPrivateIp(evento.DstIp))
-                    {
-                        AddEntry("IP", evento.DstIp, "Tráfego interno durante teste", autoApprove: true);
-                    }
-                    else if (IPAddress.TryParse(evento.DstIp, out _))
-                    {
-                        AddEntry("IP", evento.DstIp, "Conexão externa observada", autoApprove: false);
-                    }
-                }
-
-                if (!string.IsNullOrWhiteSpace(evento.DnsQuery))
-                {
-                    var query = evento.DnsQuery.ToLowerInvariant();
-                    var isTrusted = TrustedDomains.Any(domain => query.EndsWith(domain, StringComparison.OrdinalIgnoreCase));
-                    AddEntry("DOMAIN", query, isTrusted ? "Domínio confiável conhecido" : "Domínio resolvido durante o teste", isTrusted);
-                }
-
-                if (!string.IsNullOrWhiteSpace(evento.Image) &&
-                    !string.IsNullOrWhiteSpace(evento.Signature) &&
-                    evento.Signature.IndexOf("Microsoft", StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    AddEntry("PROCESS", evento.Image, "Processo assinado pela Microsoft", autoApprove: true);
-                }
-            }
-
-            return entries.Values
-                .OrderBy(e => e.EntryType)
-                .ThenBy(e => e.Value, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-        }
-
-        public static bool IsPrivateIp(string? ip)
-        {
-            if (string.IsNullOrWhiteSpace(ip))
-            {
-                return false;
-            }
-
-            if (!IPAddress.TryParse(ip, out var address))
-            {
-                return false;
-            }
-
-            var bytes = address.GetAddressBytes();
-
-            return address.AddressFamily switch
-            {
-                System.Net.Sockets.AddressFamily.InterNetwork => IsPrivateIpv4(bytes),
-                System.Net.Sockets.AddressFamily.InterNetworkV6 => address.IsIPv6LinkLocal || address.IsIPv6SiteLocal || address.IsIPv6Multicast || address.Equals(IPAddress.IPv6Loopback),
-                _ => false
-            };
-        }
-
-        private static bool IsPrivateIpv4(ReadOnlySpan<byte> bytes)
-        {
-            return bytes[0] switch
-            {
-                10 => true,
-                172 when bytes[1] >= 16 && bytes[1] <= 31 => true,
-                192 when bytes[1] == 168 => true,
-                127 => true,
-                _ => false
-            };
         }
     }
 

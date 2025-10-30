@@ -131,22 +131,6 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
     );
 
     /// <summary>
-    /// Sugestão de whitelisting derivada a partir dos eventos normais observados.
-    /// </summary>
-    /// <param name="EntryType">Tipo (IP, DOMAIN, PROCESS, HASH, PIPE etc.).</param>
-    /// <param name="Value">Valor sugerido para whitelist.</param>
-    /// <param name="Reason">Motivação para a sugestão.</param>
-    /// <param name="AutoApproved">Se a heurística indica aprovação automática.</param>
-    /// <param name="Approved">Decisão final (interativa) do analista.</param>
-    internal record SuggestedWhitelistEntry(
-        string EntryType,
-        string Value,
-        string Reason,
-        bool AutoApproved,
-        bool Approved
-    );
-
-    /// <summary>
     /// Métricas de qualidade da normalização para auditoria e revisão.
     /// </summary>
     /// <param name="TotalEvents">Total de eventos processados.</param>
@@ -205,13 +189,11 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
     /// </summary>
     /// <param name="Signature">Assinatura resultante.</param>
     /// <param name="Segregation">Classificação de eventos.</param>
-    /// <param name="SuggestedWhitelist">Sugestões de whitelist.</param>
     /// <param name="Quality">Métricas de qualidade.</param>
     /// <param name="Logs">Eventos de log gerados.</param>
     internal record CatalogNormalizationResult(
         NormalizedTestSignature Signature,
         EventSegregationResult Segregation,
-        IReadOnlyList<SuggestedWhitelistEntry> SuggestedWhitelist,
         NormalizationQualityMetrics Quality,
         IReadOnlyList<NormalizationLogEntry> Logs
     );

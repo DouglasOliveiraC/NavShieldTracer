@@ -105,7 +105,6 @@ namespace NavShieldTracer.Storage
         /// - atomic_tests: Testes atomicos catalogados do MITRE ATT&amp;CK
         /// - normalized_test_signatures: Assinaturas comportamentais normalizadas
         /// - normalized_core_events: Eventos criticos de cada assinatura
-        /// - normalized_whitelist_entries: Entradas de whitelist para filtragem de ruido
         /// - normalization_log: Log de processamento de normalizacao
         /// - session_similarity_snapshots: Snapshots de analise de similaridade em tempo real
         /// - alert_history: Historico de mudancas de nivel de ameaca
@@ -263,20 +262,6 @@ namespace NavShieldTracer.Storage
             );
 
             CREATE INDEX IF NOT EXISTS idx_normalized_core_signature ON normalized_core_events(signature_id);
-
-            CREATE TABLE IF NOT EXISTS normalized_whitelist_entries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                signature_id INTEGER NOT NULL,
-                entry_type TEXT NOT NULL,
-                value TEXT NOT NULL,
-                reason TEXT,
-                approved INTEGER DEFAULT 0,
-                auto_generated INTEGER DEFAULT 1,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(signature_id) REFERENCES normalized_test_signatures(id) ON DELETE CASCADE
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_normalized_whitelist_signature ON normalized_whitelist_entries(signature_id);
 
             CREATE TABLE IF NOT EXISTS normalization_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1189,13 +1174,12 @@ namespace NavShieldTracer.Storage
         }
 
         /// <summary>
-        /// Salva metadados de review pós-catalogação: observações, tarja e whitelist.
+        /// Salva metadados de review pós-catalogação: observações e tarja.
         /// </summary>
         /// <param name="testeId">ID do teste atômico catalogado.</param>
         /// <param name="observacoes">Observações sobre o teste (opcional).</param>
         /// <param name="tarja">Nível de alerta/tarja (Verde, Amarelo, Laranja, Vermelho).</param>
-        /// <param name="whitelistEntries">Lista de IPs/domínios para whitelist de rede.</param>
-        public void SalvarReviewTeste(int testeId, string? observacoes, string tarja, IReadOnlyList<string> whitelistEntries)
+        public void SalvarReviewTeste(int testeId, string? observacoes, string tarja)
         {
             using var tx = _conn.BeginTransaction();
             try
@@ -1215,85 +1199,6 @@ namespace NavShieldTracer.Storage
                     cmdUpdate.Parameters.AddWithValue("$observacoes", (object?)observacoes ?? DBNull.Value);
                     cmdUpdate.Parameters.AddWithValue("$tarja", tarja);
                     cmdUpdate.ExecuteNonQuery();
-                }
-
-                // Verificar se existe assinatura normalizada para este teste
-                int? signatureId = null;
-                using (var cmdGetSignature = _conn.CreateCommand())
-                {
-                    cmdGetSignature.Transaction = tx;
-                    cmdGetSignature.CommandText = "SELECT id FROM normalized_test_signatures WHERE test_id = $test_id;";
-                    cmdGetSignature.Parameters.AddWithValue("$test_id", testeId);
-                    var result = cmdGetSignature.ExecuteScalar();
-                    if (result != null && result != DBNull.Value)
-                    {
-                        signatureId = Convert.ToInt32(result);
-                    }
-                }
-
-                // Se não existe assinatura, criar uma temporária para armazenar whitelist
-                if (!signatureId.HasValue && whitelistEntries.Count > 0)
-                {
-                    using (var cmdCreateSignature = _conn.CreateCommand())
-                    {
-                        cmdCreateSignature.Transaction = tx;
-                        cmdCreateSignature.CommandText = @"
-                            INSERT INTO normalized_test_signatures (
-                                test_id, signature_hash, status, severity_label,
-                                feature_vector_json, total_events, core_event_count,
-                                support_event_count, noise_event_count, processed_at
-                            ) VALUES (
-                                $test_id, 'manual_review', 'Pending', $tarja,
-                                '{}', 0, 0, 0, 0, $now
-                            );
-                        ";
-                        cmdCreateSignature.Parameters.AddWithValue("$test_id", testeId);
-                        cmdCreateSignature.Parameters.AddWithValue("$tarja", tarja);
-                        cmdCreateSignature.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("O"));
-                        cmdCreateSignature.ExecuteNonQuery();
-
-                        // Obter ID da assinatura recém-criada
-                        using var cmdGetId = _conn.CreateCommand();
-                        cmdGetId.Transaction = tx;
-                        cmdGetId.CommandText = "SELECT last_insert_rowid();";
-                        signatureId = Convert.ToInt32(cmdGetId.ExecuteScalar());
-                    }
-                }
-
-                // Inserir entradas de whitelist
-                if (signatureId.HasValue && whitelistEntries.Count > 0)
-                {
-                    // Limpar whitelist existente
-                    using (var cmdDelWhitelist = _conn.CreateCommand())
-                    {
-                        cmdDelWhitelist.Transaction = tx;
-                        cmdDelWhitelist.CommandText = "DELETE FROM normalized_whitelist_entries WHERE signature_id = $sig_id;";
-                        cmdDelWhitelist.Parameters.AddWithValue("$sig_id", signatureId.Value);
-                        cmdDelWhitelist.ExecuteNonQuery();
-                    }
-
-                    // Inserir novas entradas
-                    foreach (var entry in whitelistEntries)
-                    {
-                        using var cmdInsert = _conn.CreateCommand();
-                        cmdInsert.Transaction = tx;
-
-                        // Detectar tipo de entrada (IP vs domínio)
-                        var entryType = System.Net.IPAddress.TryParse(entry, out _) ? "IP" : "DOMAIN";
-
-                        cmdInsert.CommandText = @"
-                            INSERT INTO normalized_whitelist_entries (
-                                signature_id, entry_type, value, reason, approved, auto_generated
-                            ) VALUES (
-                                $sig_id, $type, $value, $reason, 1, 0
-                            );
-                        ";
-                        cmdInsert.Parameters.AddWithValue("$sig_id", signatureId.Value);
-                        cmdInsert.Parameters.AddWithValue("$type", entryType);
-                        cmdInsert.Parameters.AddWithValue("$value", entry);
-                        cmdInsert.Parameters.AddWithValue("$reason", "Manual review whitelist");
-                        cmdInsert.ExecuteNonQuery();
-                    }
                 }
 
                 tx.Commit();
@@ -1444,37 +1349,6 @@ namespace NavShieldTracer.Storage
                     cmdInsertCore.Parameters.AddWithValue("$command_line", core.CommandLine ?? (object)DBNull.Value);
                     cmdInsertCore.Parameters.AddWithValue("$metadata_json", metadataJson);
                     cmdInsertCore.ExecuteNonQuery();
-                }
-
-                foreach (var entry in resultado.SuggestedWhitelist)
-                {
-                    using var cmdInsertWhitelist = _conn.CreateCommand();
-                    cmdInsertWhitelist.Transaction = tx;
-                    cmdInsertWhitelist.CommandText = @"
-                        INSERT INTO normalized_whitelist_entries (
-                            signature_id,
-                            entry_type,
-                            value,
-                            reason,
-                            approved,
-                            auto_generated
-                        )
-                        VALUES (
-                            $signature_id,
-                            $entry_type,
-                            $value,
-                            $reason,
-                            $approved,
-                            $auto_generated
-                        );
-                    ";
-                    cmdInsertWhitelist.Parameters.AddWithValue("$signature_id", signatureId);
-                    cmdInsertWhitelist.Parameters.AddWithValue("$entry_type", entry.EntryType);
-                    cmdInsertWhitelist.Parameters.AddWithValue("$value", entry.Value);
-                    cmdInsertWhitelist.Parameters.AddWithValue("$reason", string.IsNullOrWhiteSpace(entry.Reason) ? (object)DBNull.Value : entry.Reason);
-                    cmdInsertWhitelist.Parameters.AddWithValue("$approved", entry.Approved ? 1 : 0);
-                    cmdInsertWhitelist.Parameters.AddWithValue("$auto_generated", entry.AutoApproved ? 1 : 0);
-                    cmdInsertWhitelist.ExecuteNonQuery();
                 }
 
                 foreach (var log in resultado.Logs)
@@ -1680,9 +1554,6 @@ namespace NavShieldTracer.Storage
                     .Distinct()
                     .ToList();
 
-                // Carregar whitelist
-                var (whitelistedIps, whitelistedDomains, whitelistedProcesses) = CarregarWhitelist(testId);
-
                 // Parse severity
                 Enum.TryParse<Heuristics.Normalization.ThreatSeverityTarja>(severityLabel, out var severity);
 
@@ -1695,10 +1566,7 @@ namespace NavShieldTracer.Storage
                     ThreatLevel = severity,
                     FeatureVector = featureVector,
                     CoreEventIds = coreEvents,
-                    CoreEventPatterns = coreEventPatterns,
-                    WhitelistedIps = whitelistedIps,
-                    WhitelistedDomains = whitelistedDomains,
-                    WhitelistedProcesses = whitelistedProcesses
+                    CoreEventPatterns = coreEventPatterns
                 });
             }
 
@@ -1759,44 +1627,6 @@ namespace NavShieldTracer.Storage
             }
 
             return patterns;
-        }
-
-        private (HashSet<string>, HashSet<string>, HashSet<string>) CarregarWhitelist(int testId)
-        {
-            var ips = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var domains = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var processes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = @"
-                SELECT entry_type, value
-                FROM normalized_whitelist_entries
-                WHERE signature_id = (SELECT id FROM normalized_test_signatures WHERE test_id = $test_id)
-                  AND approved = 1;
-            ";
-            cmd.Parameters.AddWithValue("$test_id", testId);
-
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read())
-            {
-                var type = reader.GetString(0);
-                var value = reader.GetString(1);
-
-                switch (type.ToUpperInvariant())
-                {
-                    case "IP":
-                        ips.Add(value);
-                        break;
-                    case "DOMAIN":
-                        domains.Add(value);
-                        break;
-                    case "PROCESS":
-                        processes.Add(value);
-                        break;
-                }
-            }
-
-            return (ips, domains, processes);
         }
 
         private string InferTacticFromTechnique(string techniqueId)

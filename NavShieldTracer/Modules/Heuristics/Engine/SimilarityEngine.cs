@@ -37,15 +37,9 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
             IReadOnlyList<CatalogEventSnapshot> sessionEvents,
             CatalogedTechniqueContext catalogedTechnique)
         {
-            // Aplicar whitelist - filtrar eventos whitelisted antes do cálculo
-            var filteredEvents = ApplyWhitelist(sessionEvents, catalogedTechnique, out var reusedOriginalEvents);
-            var filteredHistogram = reusedOriginalEvents
-                ? sessionStats.EventHistogram
-                : BuildHistogram(filteredEvents);
-
             // OTIMIZAÇÃO: Calcular D2 primeiro (mais rápido e mais importante - 35% peso)
             // D2: Critical Events Presence Score (35%)
-            var d2 = CalculateCriticalEventsScore(filteredHistogram, catalogedTechnique.CoreEventIds);
+            var d2 = CalculateCriticalEventsScore(sessionStats.EventHistogram, catalogedTechnique.CoreEventIds);
 
             // EARLY TERMINATION 1: Se < 50% dos eventos críticos presentes, abortar imediatamente
             if (d2 < 0.5)
@@ -54,7 +48,7 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
             }
 
             // D1: Event Type Histogram Similarity (40%) - mais custoso, calcular depois
-            var d1 = CalculateHistogramSimilarity(filteredHistogram, catalogedTechnique.FeatureVector.EventTypeHistogram);
+            var d1 = CalculateHistogramSimilarity(sessionStats.EventHistogram, catalogedTechnique.FeatureVector.EventTypeHistogram);
 
             // EARLY TERMINATION 2: Se D1 + D2 combinados já estão muito abaixo do threshold, abortar
             // Threshold ajustado: 75% do mínimo (considerando que D3 e D4 somam apenas 25%)
@@ -65,7 +59,7 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
             }
 
             // D3: Temporal Pattern Matching Score (15%) - médio custo
-            var d3 = CalculateTemporalScore(filteredEvents, catalogedTechnique.CoreEventPatterns);
+            var d3 = CalculateTemporalScore(sessionEvents, catalogedTechnique.CoreEventPatterns);
 
             // D4: Context Similarity Score (10%) - baixo custo
             var d4 = CalculateContextScore(sessionStats, catalogedTechnique.FeatureVector);
@@ -89,7 +83,7 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
                 : "low";
 
             // Identificar eventos que formaram o match
-            var matchedEventIds = GetMatchedEventIds(filteredEvents, catalogedTechnique.CoreEventIds);
+            var matchedEventIds = GetMatchedEventIds(sessionEvents, catalogedTechnique.CoreEventIds);
 
             var dimensions = new SimilarityDimensions(d1, d2, d3, d4);
 
@@ -327,50 +321,6 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
                 <= 20 => "medium",
                 _ => "high"
             };
-        }
-
-        /// <summary>
-        /// Aplica whitelist para filtrar eventos antes do cálculo.
-        /// </summary>
-        private IReadOnlyList<CatalogEventSnapshot> ApplyWhitelist(
-            IReadOnlyList<CatalogEventSnapshot> events,
-            CatalogedTechniqueContext catalogedTechnique,
-            out bool reusedOriginal)
-        {
-            var hasWhitelist = catalogedTechnique.WhitelistedIps.Count > 0
-                || catalogedTechnique.WhitelistedDomains.Count > 0
-                || catalogedTechnique.WhitelistedProcesses.Count > 0;
-
-            if (!hasWhitelist)
-            {
-                reusedOriginal = true;
-                return events;
-            }
-
-            reusedOriginal = false;
-            var filtered = new List<CatalogEventSnapshot>(events.Count);
-
-            foreach (var e in events)
-            {
-                if (!string.IsNullOrWhiteSpace(e.DstIp) && catalogedTechnique.WhitelistedIps.Contains(e.DstIp))
-                {
-                    continue;
-                }
-
-                if (!string.IsNullOrWhiteSpace(e.DnsQuery) && catalogedTechnique.WhitelistedDomains.Contains(e.DnsQuery))
-                {
-                    continue;
-                }
-
-                if (!string.IsNullOrWhiteSpace(e.Image) && catalogedTechnique.WhitelistedProcesses.Any(wp => e.Image.Contains(wp, StringComparison.OrdinalIgnoreCase)))
-                {
-                    continue;
-                }
-
-                filtered.Add(e);
-            }
-
-            return filtered;
         }
 
         private Dictionary<int, int> BuildHistogram(IReadOnlyList<CatalogEventSnapshot> events)

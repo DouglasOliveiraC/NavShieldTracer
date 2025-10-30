@@ -42,6 +42,10 @@ public sealed class ConsoleUI
     private readonly ManageView _manageView;
     private readonly ViewContext _viewContext;
 
+    /// <summary>
+    /// Cria uma nova instância da interface de console.
+    /// </summary>
+    /// <param name="appService">Serviço principal da aplicação.</param>
     public ConsoleUI(NavShieldAppService appService)
     {
         _appService = appService;
@@ -62,6 +66,10 @@ public sealed class ConsoleUI
         _manageView = new ManageView(_viewContext);
     }
 
+    /// <summary>
+    /// Inicia o loop interativo da interface de console.
+    /// </summary>
+    /// <param name="cancellationToken">Token de cancelamento.</param>
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
         Console.Clear();
@@ -312,9 +320,8 @@ public sealed class ConsoleUI
             InputMode.EditingCatalogNome => "[yellow]Modo: EDITANDO NOME TESTE - [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
             InputMode.EditingCatalogDescricao => "[yellow]Modo: EDITANDO DESCRICAO TESTE - [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
             InputMode.EditingCatalogTarget => "[yellow]Modo: EDITANDO EXECUTAVEL ALVO - [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
-            InputMode.PostCatalogReview => "[yellow]Modo: REVIEW TESTE - [[1]] Tarja (↑/↓) [[2]] Observacoes [[3]] Whitelist [[S]] Salvar [[Esc]] Cancelar[/]",
+            InputMode.PostCatalogReview => "[yellow]Modo: REVIEW TESTE - [[1]] Tarja (↑/↓) [[2]] Observacoes [[S]] Salvar [[Esc]] Cancelar[/]",
             InputMode.EditingCatalogObservacoes => "[yellow]Modo: EDITANDO OBSERVACOES - [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
-            InputMode.EditingCatalogWhitelist => $"[yellow]Modo: WHITELIST ({Markup.Escape(_catalogView.GetWhitelistInputBuffer())}) - [[Enter]] Adicionar │ [[Esc]] Cancelar[/]",
             _ => "[grey]Modo desconhecido[/]"
         };
 
@@ -466,18 +473,10 @@ public sealed class ConsoleUI
                     _forceRefresh = true;
                 }
             }
-            else if (key.KeyChar == '3')
-            {
-                lock (_stateLock)
-                {
-                    _inputMode = InputMode.EditingCatalogWhitelist;
-                    _forceRefresh = true;
-                }
-            }
         }
 
-        // Voltar ao review após editar observações/whitelist
-        if ((mode == InputMode.EditingCatalogObservacoes || mode == InputMode.EditingCatalogWhitelist) && key.Key == ConsoleKey.Enter)
+        // Voltar ao review após editar observações
+        if (mode == InputMode.EditingCatalogObservacoes && key.Key == ConsoleKey.Enter)
         {
             lock (_stateLock)
             {

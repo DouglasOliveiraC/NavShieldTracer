@@ -28,6 +28,13 @@ public sealed class ViewContext
     /// </summary>
     public Action<string?> SetStatusMessage { get; }
 
+    /// <summary>
+    /// Cria uma nova instância do contexto de view.
+    /// </summary>
+    /// <param name="appService">Serviço principal da aplicação.</param>
+    /// <param name="stateLock">Lock para sincronização.</param>
+    /// <param name="requestRefresh">Callback para refresh.</param>
+    /// <param name="setStatusMessage">Callback para mensagens de status.</param>
     public ViewContext(
         NavShieldAppService appService,
         object stateLock,

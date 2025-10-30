@@ -26,11 +26,19 @@ public sealed class ManageView : IConsoleView
     private DateTime? _manageNormalizedAt;
     private ResumoTesteAtomico? _manageResumo;
 
+    /// <summary>
+    /// Cria uma nova instância da view de gerenciamento.
+    /// </summary>
+    /// <param name="context">Contexto compartilhado de views.</param>
     public ManageView(ViewContext context)
     {
         _context = context;
     }
 
+    /// <summary>
+    /// Constrói o conteúdo visual da view.
+    /// </summary>
+    /// <param name="now">Timestamp atual.</param>
     public IRenderable BuildContent(DateTime now)
     {
         var testes = _context.AppService.ListarTestes();
@@ -157,6 +165,10 @@ public sealed class ManageView : IConsoleView
         return grid;
     }
 
+    /// <summary>
+    /// Processa entrada do usuário em modo navegação.
+    /// </summary>
+    /// <param name="key">Tecla pressionada.</param>
     public async Task HandleNavigationInputAsync(ConsoleKeyInfo key)
     {
         if (key.Key == ConsoleKey.L)
@@ -181,6 +193,11 @@ public sealed class ManageView : IConsoleView
         }
     }
 
+    /// <summary>
+    /// Processa entrada do usuário em modo edição.
+    /// </summary>
+    /// <param name="key">Tecla pressionada.</param>
+    /// <param name="mode">Modo de edição atual.</param>
     public Task HandleEditModeInputAsync(ConsoleKeyInfo key, InputMode mode)
     {
         switch (mode)
@@ -208,6 +225,9 @@ public sealed class ManageView : IConsoleView
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Retorna o modo de edição padrão ao pressionar Enter.
+    /// </summary>
     public InputMode? GetDefaultEditMode()
     {
         return InputMode.EditingManageId;

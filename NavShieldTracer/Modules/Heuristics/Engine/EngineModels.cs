@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using NavShieldTracer.Modules.Heuristics.Normalization;
 
 namespace NavShieldTracer.Modules.Heuristics.Engine
@@ -43,10 +44,10 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
     );
 
     /// <summary>
-    /// Descreve o padrao esperado de um evento cr�tico normalizado.
+    /// Descreve o padrão esperado de um evento crítico normalizado.
     /// </summary>
     /// <param name="EventId">ID do evento.</param>
-    /// <param name="RelativeSeconds">Offset em segundos em rela�ao ao primeiro evento.</param>
+    /// <param name="RelativeSeconds">Offset em segundos em relação ao primeiro evento.</param>
     internal record CoreEventPattern(int EventId, double? RelativeSeconds);
 
     /// <summary>
@@ -193,8 +194,5 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
         public NormalizedFeatureVector FeatureVector { get; set; } = null!;
         public List<int> CoreEventIds { get; set; } = new();
         public List<CoreEventPattern> CoreEventPatterns { get; set; } = new();
-        public HashSet<string> WhitelistedIps { get; set; } = new();
-        public HashSet<string> WhitelistedDomains { get; set; } = new();
-        public HashSet<string> WhitelistedProcesses { get; set; } = new();
     }
 }

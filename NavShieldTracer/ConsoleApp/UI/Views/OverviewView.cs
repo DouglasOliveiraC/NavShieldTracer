@@ -13,11 +13,19 @@ public sealed class OverviewView : IConsoleView
 {
     private readonly ViewContext _context;
 
+    /// <summary>
+    /// Cria uma nova instância da view de visão geral.
+    /// </summary>
+    /// <param name="context">Contexto compartilhado de views.</param>
     public OverviewView(ViewContext context)
     {
         _context = context;
     }
 
+    /// <summary>
+    /// Constrói o conteúdo visual da view.
+    /// </summary>
+    /// <param name="now">Timestamp atual.</param>
     public IRenderable BuildContent(DateTime now)
     {
         var dashboard = _context.AppService.GetDashboardSnapshot();
@@ -49,18 +57,30 @@ public sealed class OverviewView : IConsoleView
         return grid;
     }
 
+    /// <summary>
+    /// Processa entrada do usuário em modo navegação.
+    /// </summary>
+    /// <param name="key">Tecla pressionada.</param>
     public Task HandleNavigationInputAsync(ConsoleKeyInfo key)
     {
         // Overview não tem comandos específicos em modo navegação
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Processa entrada do usuário em modo edição.
+    /// </summary>
+    /// <param name="key">Tecla pressionada.</param>
+    /// <param name="mode">Modo de edição atual.</param>
     public Task HandleEditModeInputAsync(ConsoleKeyInfo key, InputMode mode)
     {
         // Overview não tem modo de edição
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Retorna o modo de edição padrão ao pressionar Enter.
+    /// </summary>
     public InputMode? GetDefaultEditMode()
     {
         // Overview não entra em modo de edição com Enter

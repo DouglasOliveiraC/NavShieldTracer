@@ -541,18 +541,17 @@ public sealed class NavShieldAppService : IDisposable
     }
 
     /// <summary>
-    /// Salva metadados de review pós-catalogação: observações, nível de alerta e whitelist.
+    /// Salva metadados de review pós-catalogação: observações e nível de alerta.
     /// </summary>
     /// <param name="testeId">ID do teste atômico catalogado.</param>
     /// <param name="tarja">Nível de alerta (Verde, Amarelo, Laranja, Vermelho).</param>
     /// <param name="observacoes">Observações sobre o teste (opcional).</param>
-    /// <param name="whitelistEntries">Lista de IPs/domínios para whitelist de rede.</param>
     /// <returns>True se salvo com sucesso, false caso contrário.</returns>
-    public bool SaveTestReview(int testeId, string tarja, string? observacoes, IReadOnlyList<string> whitelistEntries)
+    public bool SaveTestReview(int testeId, string tarja, string? observacoes)
     {
         try
         {
-            _store.SalvarReviewTeste(testeId, observacoes, tarja, whitelistEntries);
+            _store.SalvarReviewTeste(testeId, observacoes, tarja);
             return true;
         }
         catch
