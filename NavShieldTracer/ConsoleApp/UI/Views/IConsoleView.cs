@@ -10,6 +10,11 @@ namespace NavShieldTracer.ConsoleApp.UI.Views;
 public interface IConsoleView
 {
     /// <summary>
+    /// Intervalo de atualização preferencial para esta view.
+    /// </summary>
+    TimeSpan RefreshInterval { get; }
+
+    /// <summary>
     /// Constrói o conteúdo renderizável da view.
     /// </summary>
     /// <param name="now">Timestamp atual para exibição.</param>

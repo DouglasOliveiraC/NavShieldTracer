@@ -121,5 +121,18 @@ namespace NavShieldTracer.Storage
         /// <param name="sessionId">ID da sessão a ser analisada</param>
         /// <returns>Dicionário com Event ID como chave e contagem de ocorrências como valor</returns>
         Dictionary<int, int> GetCriticalEventCounts(int sessionId);
+
+        /// <summary>
+        /// Lista todas as sessões de monitoramento (ativas e encerradas)
+        /// </summary>
+        /// <returns>Lista de sessões ordenadas por data de início (mais recentes primeiro)</returns>
+        List<SessaoMonitoramento> ListarSessoes();
+
+        /// <summary>
+        /// Obtém estatísticas básicas de uma sessão para exibição ao analista
+        /// </summary>
+        /// <param name="sessionId">ID da sessão</param>
+        /// <returns>Estatísticas básicas incluindo distribuição de eventos, IPs, domínios e processos</returns>
+        SessionStats ObterEstatisticasSessao(int sessionId);
     }
 }

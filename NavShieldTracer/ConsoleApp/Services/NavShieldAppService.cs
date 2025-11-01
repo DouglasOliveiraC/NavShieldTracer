@@ -237,6 +237,41 @@ public sealed class NavShieldAppService : IDisposable
     public IReadOnlyList<TesteAtomico> ListarTestes() => _store.ListarTestesAtomicos();
 
     /// <summary>
+    /// Lista todas as sessões de monitoramento (ativas e encerradas).
+    /// </summary>
+    /// <returns>Lista de sessões ordenadas por data de início (mais recentes primeiro).</returns>
+    public IReadOnlyList<SessaoMonitoramento> ListarSessoes()
+    {
+        var sessoes = _store.ListarSessoes();
+        if (sessoes.Count == 0)
+        {
+            return sessoes;
+        }
+
+        var filtered = new List<SessaoMonitoramento>(sessoes.Count);
+        var removedAny = false;
+
+        foreach (var sessao in sessoes)
+        {
+            var target = sessao.TargetProcess;
+            if (!string.IsNullOrWhiteSpace(target))
+            {
+                var processName = Path.GetFileName(target) ?? target;
+                if (string.Equals(processName, "teste.exe", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(processName, "teste", StringComparison.OrdinalIgnoreCase))
+                {
+                    removedAny = true;
+                    continue;
+                }
+            }
+
+            filtered.Add(sessao);
+        }
+
+        return removedAny ? filtered : sessoes;
+    }
+
+    /// <summary>
     /// Obtém o resumo detalhado de um teste atômico específico.
     /// </summary>
     /// <param name="testeId">ID do teste a ser consultado.</param>
@@ -295,20 +330,25 @@ public sealed class NavShieldAppService : IDisposable
     /// Inicia uma nova sessão de monitoramento de processo sem catalogação.
     /// </summary>
     /// <param name="targetExecutable">Nome do executável a ser monitorado.</param>
+    /// <param name="preferredPid">PID preferencial quando existir mais de um processo com o mesmo executável.</param>
     /// <returns>Sessão de monitoramento criada.</returns>
-    public MonitoringSession StartMonitoring(string targetExecutable)
-        => StartInternal(MonitoringSessionType.Monitor, targetExecutable, null);
+    public MonitoringSession StartMonitoring(string targetExecutable, int? preferredPid = null)
+        => StartInternal(MonitoringSessionType.Monitor, targetExecutable, null, preferredPid);
 
     /// <summary>
     /// Inicia uma nova sessão de catalogação de teste atômico do MITRE ATT&amp;CK.
     /// </summary>
     /// <param name="novoTeste">Metadados do teste atômico a ser catalogado.</param>
     /// <param name="targetExecutable">Nome do executável a ser monitorado.</param>
+    /// <param name="preferredPid">PID preferencial quando existir mais de um processo com o mesmo executável.</param>
     /// <returns>Sessão de monitoramento criada para catalogação.</returns>
-    public MonitoringSession StartCatalog(NovoTesteAtomico novoTeste, string targetExecutable)
-        => StartInternal(MonitoringSessionType.Catalog, targetExecutable, novoTeste);
-
-    private MonitoringSession StartInternal(MonitoringSessionType kind, string targetExecutable, NovoTesteAtomico? novoTeste)
+    public MonitoringSession StartCatalog(NovoTesteAtomico novoTeste, string targetExecutable, int? preferredPid = null)
+        => StartInternal(MonitoringSessionType.Catalog, targetExecutable, novoTeste, preferredPid);
+    private MonitoringSession StartInternal(
+        MonitoringSessionType kind,
+        string targetExecutable,
+        NovoTesteAtomico? novoTeste,
+        int? preferredPid)
     {
         if (string.IsNullOrWhiteSpace(targetExecutable))
         {
@@ -321,7 +361,7 @@ public sealed class NavShieldAppService : IDisposable
         }
 
         var normalizedExecutable = NormalizeExecutable(targetExecutable);
-        var rootPid = TryResolveProcessId(normalizedExecutable);
+        var rootPid = TryResolveProcessId(normalizedExecutable, preferredPid);
 
         int sessionId = _store.BeginSession(new SessionInfo(
             DateTime.Now,
@@ -593,6 +633,46 @@ public sealed class NavShieldAppService : IDisposable
         return filePath;
     }
 
+    /// <summary>
+    /// Exporta todos os eventos de uma sessão de monitoramento para arquivo JSON.
+    /// </summary>
+    /// <param name="sessionId">ID da sessão a ser exportada.</param>
+    /// <returns>Caminho completo do arquivo exportado.</returns>
+    public async Task<string> ExportarSessaoAsync(int sessionId)
+    {
+        // Buscar metadados da sessão
+        var sessoes = _store.ListarSessoes();
+        var sessao = sessoes.FirstOrDefault(s => s.Id == sessionId);
+
+        // Buscar estatísticas
+        var stats = _store.ObterEstatisticasSessao(sessionId);
+
+        // Buscar eventos
+        var eventos = _store.ExportarEventosSessao(sessionId);
+
+        // Montar objeto completo para exportação
+        var exportData = new
+        {
+            Sessao = sessao,
+            Estatisticas = stats,
+            Eventos = eventos
+        };
+
+        var fileName = $"logs_sessao_{sessionId}_{DateTime.Now:yyyyMMdd_HHmmss}.json";
+        var directory = Path.GetDirectoryName(_store.DatabasePath) ?? Environment.CurrentDirectory;
+        var filePath = Path.Combine(directory, fileName);
+        var json = JsonSerializer.Serialize(exportData, new JsonSerializerOptions { WriteIndented = true });
+        await File.WriteAllTextAsync(filePath, json).ConfigureAwait(false);
+        return filePath;
+    }
+
+    /// <summary>
+    /// Obtém estatísticas básicas de uma sessão para exibição
+    /// </summary>
+    /// <param name="sessionId">ID da sessão</param>
+    /// <returns>Estatísticas da sessão</returns>
+    public SessionStats ObterEstatisticasSessao(int sessionId) => _store.ObterEstatisticasSessao(sessionId);
+
     private static string NormalizeExecutable(string executable)
     {
         var trimmed = executable.Trim();
@@ -634,12 +714,34 @@ public sealed class NavShieldAppService : IDisposable
         return null;
     }
 
-    private static int TryResolveProcessId(string executableName)
+    private static int TryResolveProcessId(string executableName, int? preferredPid)
     {
         try
         {
             var nameWithoutExtension = Path.GetFileNameWithoutExtension(executableName);
-            var match = Process.GetProcessesByName(nameWithoutExtension).FirstOrDefault();
+            var processes = Process.GetProcessesByName(nameWithoutExtension);
+            if (preferredPid.HasValue)
+            {
+                var preferred = processes.FirstOrDefault(p => p.Id == preferredPid.Value);
+                if (preferred != null)
+                {
+                    return preferred.Id;
+                }
+            }
+
+            var match = processes
+                .OrderByDescending(p =>
+                {
+                    try
+                    {
+                        return p.WorkingSet64;
+                    }
+                    catch
+                    {
+                        return 0L;
+                    }
+                })
+                .FirstOrDefault();
             return match?.Id ?? 0;
         }
         catch
@@ -768,7 +870,7 @@ public sealed class MonitoringSession
     /// </summary>
     /// <param name="kind">Tipo da sessão (Monitor ou Catalog).</param>
     /// <param name="sessionId">ID da sessão no banco de dados.</param>
-    /// <param name="targetExecutable">Nome do executável a ser monitorado.</param>
+    /// <param name="targetExecutable">Nome do executável monitorado durante a sessão.</param>
     /// <param name="tracker">Rastreador de atividade de processos.</param>
     /// <param name="testMetadata">Metadados do teste atômico (apenas para Catalog).</param>
     /// <param name="testId">ID do teste no banco (apenas para Catalog).</param>
@@ -843,3 +945,4 @@ public sealed class MonitoringSession
     /// <returns>Lista de mensagens de log formatadas com timestamp.</returns>
     public IReadOnlyList<string> GetLogs() => _logs.ToArray();
 }
+

@@ -84,4 +84,51 @@ namespace NavShieldTracer.Modules.Models
         DateTime? NormalizedAt,
         string? Notes
     );
+
+    /// <summary>
+    /// Informações de uma sessão de monitoramento
+    /// </summary>
+    /// <param name="Id">ID único da sessão no banco</param>
+    /// <param name="StartedAt">Data e hora de início da sessão</param>
+    /// <param name="EndedAt">Data e hora de finalização da sessão (null se ainda ativa)</param>
+    /// <param name="TargetProcess">Nome do processo alvo monitorado</param>
+    /// <param name="RootPid">PID do processo raiz</param>
+    /// <param name="Host">Nome da máquina</param>
+    /// <param name="User">Usuário que executou o monitoramento</param>
+    /// <param name="OsVersion">Versão do sistema operacional</param>
+    /// <param name="TotalEventos">Total de eventos capturados na sessão</param>
+    /// <param name="Notes">Observações sobre a sessão</param>
+    public record SessaoMonitoramento(
+        int Id,
+        DateTime StartedAt,
+        DateTime? EndedAt,
+        string TargetProcess,
+        int RootPid,
+        string Host,
+        string User,
+        string OsVersion,
+        int TotalEventos,
+        string? Notes
+    );
+
+    /// <summary>
+    /// Estatísticas básicas de uma sessão para exibição
+    /// </summary>
+    public record SessionStats
+    {
+        /// <summary>Distribuição de eventos por Event ID</summary>
+        public required Dictionary<int, int> EventosPorTipo { get; init; }
+
+        /// <summary>IPs de destino únicos (top 10)</summary>
+        public required List<string> TopIps { get; init; }
+
+        /// <summary>Domínios DNS únicos (top 10)</summary>
+        public required List<string> TopDomains { get; init; }
+
+        /// <summary>Processos criados (nomes únicos)</summary>
+        public required List<string> ProcessosCriados { get; init; }
+
+        /// <summary>Tarja do teste associado (se houver)</summary>
+        public string? TarjaTesteAssociado { get; init; }
+    }
 }

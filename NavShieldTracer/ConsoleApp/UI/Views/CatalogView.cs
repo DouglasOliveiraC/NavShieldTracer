@@ -19,6 +19,16 @@ public sealed class CatalogView : IConsoleView
 {
     private readonly ViewContext _context;
 
+    public TimeSpan RefreshInterval
+    {
+        get
+        {
+            var activeSession = _context.AppService.GetActiveSessionSnapshot();
+            var catalogSessionActive = activeSession is not null && activeSession.Kind == MonitoringSessionType.Catalog;
+            return catalogSessionActive ? TimeSpan.FromMilliseconds(500) : TimeSpan.FromSeconds(2);
+        }
+    }
+
     // Campos de catalogação
     private string _catalogNumero = string.Empty;
     private string _catalogNome = string.Empty;
@@ -232,19 +242,19 @@ public sealed class CatalogView : IConsoleView
         }
     }
 
-    private async Task IniciarCatalogacaoAsync()
+    private Task IniciarCatalogacaoAsync()
     {
         // Validação de campos obrigatórios
         if (string.IsNullOrWhiteSpace(_catalogNumero))
         {
             _context.SetStatusMessage("Erro: Numero do teste eh obrigatorio");
-            return;
+            return Task.CompletedTask;
         }
 
         if (string.IsNullOrWhiteSpace(_catalogNome))
         {
             _context.SetStatusMessage("Erro: Nome do teste eh obrigatorio");
-            return;
+            return Task.CompletedTask;
         }
 
         // Verificar se o processo alvo está rodando
@@ -281,6 +291,8 @@ public sealed class CatalogView : IConsoleView
         {
             _context.SetStatusMessage($"Erro: {ex.Message}");
         }
+
+        return Task.CompletedTask;
     }
 
     private async Task FinalizeCatalogAsync()

@@ -118,32 +118,5 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
             return new SeverityDecision(novaTarja, reason);
         }
 
-        private static bool PerguntarSimNao(string prompt, bool valorPadrao)
-        {
-            while (true)
-            {
-                var sufixo = valorPadrao ? "[S/n]" : "[s/N]";
-                Console.Write($"{prompt} {sufixo}: ");
-                var entrada = Console.ReadLine();
-
-                if (string.IsNullOrWhiteSpace(entrada))
-                {
-                    return valorPadrao;
-                }
-
-                entrada = entrada.Trim().ToLowerInvariant();
-                if (entrada is "s" or "sim")
-                {
-                    return true;
-                }
-
-                if (entrada is "n" or "nao" or "não")
-                {
-                    return false;
-                }
-
-                Console.WriteLine("Entrada inválida. Use S ou N.");
-            }
-        }
     }
 }

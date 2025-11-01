@@ -30,6 +30,8 @@ public enum InputMode
     SelectingMonitorProcess,
     /// <summary>Edição do ID do teste.</summary>
     EditingTestId,
+    /// <summary>Edição do ID da sessão.</summary>
+    EditingSessionId,
     /// <summary>Edição do ID na view de gerenciamento.</summary>
     EditingManageId,
     /// <summary>Edição do número da técnica MITRE.</summary>

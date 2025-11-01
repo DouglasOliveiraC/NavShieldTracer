@@ -55,7 +55,10 @@ public sealed class ConsoleUI
             appService,
             _stateLock,
             () => { lock (_stateLock) { _forceRefresh = true; } },
-            (msg) => { lock (_stateLock) { _statusMessage = msg; _forceRefresh = true; } }
+            (msg) => { lock (_stateLock) { _statusMessage = msg; _forceRefresh = true; } },
+            (mode) => { lock (_stateLock) { _inputMode = mode; _forceRefresh = true; } },
+            () => { lock (_stateLock) { return _inputMode; } },
+            () => { lock (_stateLock) { return GetCurrentView()?.RefreshInterval ?? TimeSpan.FromSeconds(1); } }
         );
 
         // Inicializar views
@@ -104,7 +107,7 @@ public sealed class ConsoleUI
                     var lastRender = DateTime.MinValue;
                     var lastStatusRefresh = DateTime.MinValue;
                     // OTIMIZAÇÃO: Reduzir refresh periódico de 250ms para 1000ms (1 segundo)
-                    var periodicInterval = TimeSpan.FromSeconds(1);
+                    var periodicInterval = _viewContext.GetCurrentViewRefreshInterval();
                     var statusInterval = TimeSpan.FromSeconds(3);
 
                     while (!uiToken.IsCancellationRequested)
@@ -308,7 +311,8 @@ public sealed class ConsoleUI
             InputMode.Navigation => "[grey]Modo: NAVEGACAO - Use [[1-5]] │ [[Q]] Sair │ [[Enter]] Editar campo[/]",
             InputMode.EditingMonitorTarget => "[yellow]Modo: EDITANDO EXECUTAVEL - [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
             InputMode.SelectingMonitorProcess => "[yellow]Modo: SELECIONANDO PROCESSO - [[↑/↓]] Navegar │ [[Tab]] Alternar lista │ [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
-            InputMode.EditingTestId => "[yellow]Modo: EDITANDO ID - [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
+            InputMode.EditingTestId => "[yellow]Modo: EDITANDO ID DO TESTE - [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
+            InputMode.EditingSessionId => "[yellow]Modo: EDITANDO ID DA SESSAO - [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
             InputMode.EditingManageId => "[yellow]Modo: EDITANDO ID GERENCIAMENTO - [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
             InputMode.EditingManageNumero => "[yellow]Modo: EDITANDO NUMERO - [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
             InputMode.EditingManageNome => "[yellow]Modo: EDITANDO NOME - [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
@@ -410,6 +414,11 @@ public sealed class ConsoleUI
         }
 
         // Comandos específicos da view ativa
+        if (TryHandleManageShortcut(key))
+        {
+            return;
+        }
+
         await GetCurrentView()?.HandleNavigationInputAsync(key)!;
     }
 
@@ -484,6 +493,33 @@ public sealed class ConsoleUI
                 _forceRefresh = true;
             }
         }
+    }
+
+    private bool TryHandleManageShortcut(ConsoleKeyInfo key)
+    {
+        if (_currentView != AppView.Manage)
+        {
+            return false;
+        }
+
+        InputMode? targetMode = key.Key switch
+        {
+            ConsoleKey.I => InputMode.EditingManageId,
+            ConsoleKey.N => InputMode.EditingManageNumero,
+            ConsoleKey.M => InputMode.EditingManageNome,
+            ConsoleKey.D => InputMode.EditingManageDescricao,
+            ConsoleKey.T => InputMode.EditingManageTarja,
+            ConsoleKey.O => InputMode.EditingManageNotes,
+            _ => null
+        };
+
+        if (!targetMode.HasValue)
+        {
+            return false;
+        }
+
+        _viewContext.SetInputMode(targetMode.Value);
+        return true;
     }
 
     private IConsoleView? GetCurrentView()

@@ -861,6 +861,63 @@ namespace NavShieldTracer.Storage
         }
 
         /// <summary>
+        /// Lista todas as sessões de monitoramento (ativas e encerradas)
+        /// </summary>
+        /// <returns>Lista de sessões ordenadas por data de início (mais recentes primeiro)</returns>
+        public List<SessaoMonitoramento> ListarSessoes()
+        {
+            var sessoes = new List<SessaoMonitoramento>();
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT
+                    s.id,
+                    s.started_at,
+                    s.ended_at,
+                    s.target_process,
+                    s.root_pid,
+                    s.host,
+                    s.user,
+                    s.os_version,
+                    s.notes,
+                    COUNT(e.id) as total_eventos
+                FROM sessions s
+                LEFT JOIN events e ON s.id = e.session_id
+                GROUP BY s.id, s.started_at, s.ended_at, s.target_process, s.root_pid, s.host, s.user, s.os_version, s.notes
+                ORDER BY s.started_at DESC;
+            ";
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var id = reader.GetInt32("id");
+                var startedAt = DateTime.Parse(reader.GetString("started_at"));
+                var endedAt = reader.IsDBNull("ended_at") ? (DateTime?)null : DateTime.Parse(reader.GetString("ended_at"));
+                var targetProcess = reader.GetString("target_process");
+                var rootPid = reader.GetInt32("root_pid");
+                var host = reader.GetString("host");
+                var user = reader.GetString("user");
+                var osVersion = reader.GetString("os_version");
+                var totalEventos = reader.GetInt32("total_eventos");
+                var notes = reader.IsDBNull("notes") ? null : reader.GetString("notes");
+
+                sessoes.Add(new SessaoMonitoramento(
+                    id,
+                    startedAt,
+                    endedAt,
+                    targetProcess,
+                    rootPid,
+                    host,
+                    user,
+                    osVersion,
+                    totalEventos,
+                    notes
+                ));
+            }
+
+            return sessoes;
+        }
+
+        /// <summary>
         /// Obtém resumo estatístico de um teste específico
         /// </summary>
         /// <param name="testeId">ID do teste</param>
@@ -968,6 +1025,49 @@ namespace NavShieldTracer.Storage
         }
 
         /// <summary>
+        /// Exporta todos os eventos de uma sessão de monitoramento
+        /// </summary>
+        /// <param name="sessionId">ID da sessão</param>
+        /// <returns>Lista de eventos em formato anônimo</returns>
+        public List<object> ExportarEventosSessao(int sessionId)
+        {
+            var eventos = new List<object>();
+
+            // Busca todos os eventos da sessão
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT event_id, utc_time, capture_time, process_id, image, command_line,
+                       src_ip, dst_ip, dst_port, target_filename, raw_json
+                FROM events
+                WHERE session_id = $session_id
+                ORDER BY utc_time;
+            ";
+            cmd.Parameters.AddWithValue("$session_id", sessionId);
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var evento = new
+                {
+                    EventId = reader.IsDBNull("event_id") ? 0 : reader.GetInt32("event_id"),
+                    UtcTime = reader.IsDBNull("utc_time") ? "" : reader.GetString("utc_time"),
+                    CaptureTime = reader.IsDBNull("capture_time") ? "" : reader.GetString("capture_time"),
+                    ProcessId = reader.IsDBNull("process_id") ? (int?)null : reader.GetInt32("process_id"),
+                    Image = reader.IsDBNull("image") ? "" : reader.GetString("image"),
+                    CommandLine = reader.IsDBNull("command_line") ? "" : reader.GetString("command_line"),
+                    SrcIp = reader.IsDBNull("src_ip") ? "" : reader.GetString("src_ip"),
+                    DstIp = reader.IsDBNull("dst_ip") ? "" : reader.GetString("dst_ip"),
+                    DstPort = reader.IsDBNull("dst_port") ? (int?)null : reader.GetInt32("dst_port"),
+                    TargetFilename = reader.IsDBNull("target_filename") ? "" : reader.GetString("target_filename"),
+                    RawJson = reader.IsDBNull("raw_json") ? "" : reader.GetString("raw_json")
+                };
+                eventos.Add(evento);
+            }
+
+            return eventos;
+        }
+
+        /// <summary>
         /// Conta o número total de eventos em uma sessão específica
         /// </summary>
         /// <param name="sessionId">ID da sessão</param>
@@ -978,6 +1078,122 @@ namespace NavShieldTracer.Storage
             cmd.CommandText = "SELECT COUNT(*) FROM events WHERE session_id = $session_id;";
             cmd.Parameters.AddWithValue("$session_id", sessionId);
             return Convert.ToInt32(cmd.ExecuteScalar());
+        }
+
+        /// <summary>
+        /// Obtém estatísticas básicas de uma sessão para exibição ao analista
+        /// </summary>
+        /// <param name="sessionId">ID da sessão</param>
+        /// <returns>Estatísticas básicas</returns>
+        public SessionStats ObterEstatisticasSessao(int sessionId)
+        {
+            var eventosPorTipo = new Dictionary<int, int>();
+            var topIps = new List<string>();
+            var topDomains = new List<string>();
+            var processos = new List<string>();
+            string? tarja = null;
+
+            // Distribuição de eventos por tipo
+            using (var cmd = _conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+                    SELECT event_id, COUNT(*) as count
+                    FROM events
+                    WHERE session_id = $id
+                    GROUP BY event_id
+                    ORDER BY count DESC;
+                ";
+                cmd.Parameters.AddWithValue("$id", sessionId);
+
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    eventosPorTipo[reader.GetInt32("event_id")] = reader.GetInt32("count");
+                }
+            }
+
+            // Top 10 IPs de destino
+            using (var cmd = _conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+                    SELECT DISTINCT dst_ip
+                    FROM events
+                    WHERE session_id = $id AND event_id = 3 AND dst_ip IS NOT NULL
+                    LIMIT 10;
+                ";
+                cmd.Parameters.AddWithValue("$id", sessionId);
+
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    topIps.Add(reader.GetString("dst_ip"));
+                }
+            }
+
+            // Top 10 domínios DNS
+            using (var cmd = _conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+                    SELECT DISTINCT dns_query
+                    FROM events
+                    WHERE session_id = $id AND event_id = 22 AND dns_query IS NOT NULL
+                    LIMIT 10;
+                ";
+                cmd.Parameters.AddWithValue("$id", sessionId);
+
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    topDomains.Add(reader.GetString("dns_query"));
+                }
+            }
+
+            // Processos criados (Event ID 1)
+            using (var cmd = _conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+                    SELECT DISTINCT image
+                    FROM events
+                    WHERE session_id = $id AND event_id = 1 AND image IS NOT NULL
+                    LIMIT 15;
+                ";
+                cmd.Parameters.AddWithValue("$id", sessionId);
+
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    var fullPath = reader.GetString("image");
+                    var fileName = System.IO.Path.GetFileName(fullPath);
+                    processos.Add(fileName);
+                }
+            }
+
+            // Tarja do teste associado (se houver)
+            using (var cmd = _conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+                    SELECT t.tarja
+                    FROM atomic_tests t
+                    WHERE t.session_id = $id AND t.finalizado = 1
+                    LIMIT 1;
+                ";
+                cmd.Parameters.AddWithValue("$id", sessionId);
+
+                var result = cmd.ExecuteScalar();
+                if (result != null && result != DBNull.Value)
+                {
+                    tarja = result.ToString();
+                }
+            }
+
+            return new SessionStats
+            {
+                EventosPorTipo = eventosPorTipo,
+                TopIps = topIps,
+                TopDomains = topDomains,
+                ProcessosCriados = processos,
+                TarjaTesteAssociado = tarja
+            };
         }
 
         /// <summary>
@@ -1732,6 +1948,75 @@ namespace NavShieldTracer.Storage
             if (_disposed) return;
             _disposed = true;
             _conn.Dispose();
+        }
+
+        /// <summary>
+        /// Obtém todos os snapshots de similaridade para uma sessão específica.
+        /// </summary>
+        /// <param name="sessionId">ID da sessão.</param>
+        /// <returns>Lista de snapshots de similaridade.</returns>
+        internal IReadOnlyList<SessionSnapshot> ObterSnapshotsDeSimilaridade(int sessionId)
+        {
+            var snapshots = new List<SessionSnapshot>();
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT
+                    id, session_id, snapshot_at, matches, session_threat_level,
+                    event_count_at_snapshot, active_processes_count
+                FROM session_similarity_snapshots
+                WHERE session_id = $session_id
+                ORDER BY snapshot_at ASC;
+            ";
+            cmd.Parameters.AddWithValue("$session_id", sessionId);
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var id = reader.GetInt32(0);
+                var snapSessionId = reader.GetInt32(1);
+                var snapshotAt = DateTime.Parse(reader.GetString(2));
+                var matchesJson = reader.GetString(3);
+                var sessionThreatLevel = Enum.Parse<ThreatSeverityTarja>(reader.GetString(4));
+                var eventCount = reader.GetInt32(5);
+                var activeProcessesCount = reader.IsDBNull(6) ? 0 : reader.GetInt32(6);
+
+                var matches = DeserializeMatches(matchesJson);
+
+                snapshots.Add(new SessionSnapshot(
+                    snapSessionId,
+                    snapshotAt,
+                    matches,
+                    sessionThreatLevel,
+                    eventCount,
+                    activeProcessesCount
+                ));
+            }
+
+            return snapshots;
+        }
+
+        private IReadOnlyList<SimilarityMatch> DeserializeMatches(string matchesJson)
+        {
+            var matchesData = JsonSerializer.Deserialize<List<dynamic>>(matchesJson, _serializerOptions);
+            if (matchesData == null) return Array.Empty<SimilarityMatch>();
+
+            var result = new List<SimilarityMatch>();
+            foreach (var m in matchesData)
+            {
+                Enum.TryParse<ThreatSeverityTarja>(m.threat_level.ToString(), out ThreatSeverityTarja threatLevel);
+                result.Add(new SimilarityMatch(
+                    (int)m.test_id,
+                    m.technique_id.ToString(),
+                    m.technique_name.ToString(),
+                    m.tactic.ToString(),
+                    (double)m.similarity,
+                    threatLevel,
+                    m.confidence.ToString(),
+                    JsonSerializer.Deserialize<List<int>>(m.matched_events.ToString()) ?? new List<int>(),
+                    new SimilarityDimensions(0, 0, 0, 0) // Dimensões não são persistidas individualmente no snapshot
+                ));
+            }
+            return result;
         }
     }
 }

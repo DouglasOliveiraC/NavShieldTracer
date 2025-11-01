@@ -9,14 +9,15 @@ namespace NavShieldTracer.ConsoleApp.UI.Views;
 /// <summary>
 /// View de visão geral do sistema (Status, Sysmon, Banco de dados).
 /// </summary>
-public sealed class OverviewView : IConsoleView
-{
-    private readonly ViewContext _context;
+    public sealed class OverviewView : IConsoleView
+    {
+        private readonly ViewContext _context;
 
-    /// <summary>
-    /// Cria uma nova instância da view de visão geral.
-    /// </summary>
-    /// <param name="context">Contexto compartilhado de views.</param>
+        public TimeSpan RefreshInterval => TimeSpan.FromSeconds(2); // Atualiza a cada 2 segundos
+
+        /// <summary>
+        /// Cria uma nova instância da view de visão geral.
+        /// </summary>    /// <param name="context">Contexto compartilhado de views.</param>
     public OverviewView(ViewContext context)
     {
         _context = context;

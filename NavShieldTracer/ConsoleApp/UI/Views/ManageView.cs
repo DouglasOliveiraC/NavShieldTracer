@@ -13,6 +13,8 @@ namespace NavShieldTracer.ConsoleApp.UI.Views;
 public sealed class ManageView : IConsoleView
 {
     private readonly ViewContext _context;
+    public TimeSpan RefreshInterval => TimeSpan.FromSeconds(3); // Atualiza a cada 3 segundos
+
     private string _manageIdInput = string.Empty;
     private int? _manageSelectedId;
     private int? _manageSessionId;
@@ -48,8 +50,13 @@ public sealed class ManageView : IConsoleView
         grid.AddRow("");
         grid.AddRow($"[grey]Total catalogados:[/] [cyan1]{testes.Count}[/]");
 
-        var idDisplay = $"[cyan1]{Markup.Escape(_manageIdInput)}[/]";
-        grid.AddRow($"[grey]ID alvo:[/] {idDisplay}");
+        var currentInputMode = _context.GetCurrentInputMode();
+
+        var idLabel = currentInputMode == InputMode.EditingManageId ? "[black on yellow]ID alvo:[/]" : "[grey]ID alvo:[/]";
+        var idDisplay = currentInputMode == InputMode.EditingManageId
+            ? $"[black on yellow]{Markup.Escape(_manageIdInput)}[/]"
+            : $"[cyan1]{Markup.Escape(_manageIdInput)}[/]";
+        grid.AddRow($"{idLabel} {idDisplay}");
 
         if (_manageSelectedId.HasValue)
         {
@@ -71,13 +78,29 @@ public sealed class ManageView : IConsoleView
                 .AddColumn(new TableColumn("[grey]Campo[/]").NoWrap().Width(20))
                 .AddColumn(new TableColumn("[grey]Valor[/]"));
 
-            metaTable.AddRow("[grey]Número[/]", $"[yellow]{Markup.Escape(_manageNumero)}[/]");
-            metaTable.AddRow("[grey]Nome[/]", Markup.Escape(_manageNome));
-            metaTable.AddRow("[grey]Descrição[/]", $"[grey70]{Markup.Escape(_manageDescricao)}[/]");
+            // Destacar campos que estão sendo editados com fundo colorido
+            var numeroLabel = currentInputMode == InputMode.EditingManageNumero ? "[black on yellow]Número[/]" : "[grey]Número[/]";
+            var numeroValue = currentInputMode == InputMode.EditingManageNumero
+                ? $"[black on yellow]{Markup.Escape(_manageNumero)}[/]"
+                : $"[yellow]{Markup.Escape(_manageNumero)}[/]";
+            metaTable.AddRow(numeroLabel, numeroValue);
 
-            // Exibir tarja com cor apropriada
-            var tarjaDisplay = string.IsNullOrWhiteSpace(_manageTarja) ? "[grey]Não definida[/]" : GetTarjaColoredText(_manageTarja);
-            metaTable.AddRow("[grey]Tarja/Severidade[/]", tarjaDisplay);
+            var nomeLabel = currentInputMode == InputMode.EditingManageNome ? "[black on yellow]Nome[/]" : "[grey]Nome[/]";
+            var nomeValue = currentInputMode == InputMode.EditingManageNome
+                ? $"[black on yellow]{Markup.Escape(_manageNome)}[/]"
+                : Markup.Escape(_manageNome);
+            metaTable.AddRow(nomeLabel, nomeValue);
+
+            var descricaoLabel = currentInputMode == InputMode.EditingManageDescricao ? "[black on yellow]Descrição[/]" : "[grey]Descrição[/]";
+            var descricaoValue = currentInputMode == InputMode.EditingManageDescricao
+                ? $"[black on yellow]{Markup.Escape(_manageDescricao)}[/]"
+                : $"[grey70]{Markup.Escape(_manageDescricao)}[/]";
+            metaTable.AddRow(descricaoLabel, descricaoValue);
+
+            // Exibir tarja com cor apropriada e destaque se editando
+            var tarjaLabel = currentInputMode == InputMode.EditingManageTarja ? "[black on yellow]Tarja/Severidade[/]" : "[grey]Tarja/Severidade[/]";
+            var tarjaDisplay = string.IsNullOrWhiteSpace(_manageTarja) ? "[grey]Não definida[/]" : GetTarjaColoredText(_manageTarja, currentInputMode == InputMode.EditingManageTarja);
+            metaTable.AddRow(tarjaLabel, tarjaDisplay);
 
             if (!string.IsNullOrWhiteSpace(_manageTarjaReason))
             {
@@ -85,6 +108,7 @@ public sealed class ManageView : IConsoleView
             }
 
             // Exibir notas/observações do usuário (formatado e legível)
+            var notesLabel = currentInputMode == InputMode.EditingManageNotes ? "[black on yellow]Notas/Observações[/]" : "[grey]Notas/Observações[/]";
             var notesDisplay = "[grey]Nenhuma[/]";
             if (!string.IsNullOrWhiteSpace(_manageNotes))
             {
@@ -92,9 +116,11 @@ public sealed class ManageView : IConsoleView
                 var displayText = _manageNotes.Length > 150 ? _manageNotes.Substring(0, 150) + "..." : _manageNotes;
                 // Substituir quebras de linha por espaços para exibição compacta
                 displayText = displayText.Replace("\r\n", " ").Replace("\n", " ").Replace("  ", " ");
-                notesDisplay = $"[white]{Markup.Escape(displayText)}[/]";
+                notesDisplay = currentInputMode == InputMode.EditingManageNotes
+                    ? $"[black on yellow]{Markup.Escape(displayText)}[/]"
+                    : $"[white]{Markup.Escape(displayText)}[/]";
             }
-            metaTable.AddRow("[grey]Notas/Observações[/]", notesDisplay);
+            metaTable.AddRow(notesLabel, notesDisplay);
 
             // Exibir status de normalização
             if (!string.IsNullOrWhiteSpace(_manageNormalizationStatus))
@@ -171,6 +197,66 @@ public sealed class ManageView : IConsoleView
     /// <param name="key">Tecla pressionada.</param>
     public async Task HandleNavigationInputAsync(ConsoleKeyInfo key)
     {
+        // Detectar teclas de edição e preparar destaque ANTES de entrar em modo de edição
+        if (key.Key == ConsoleKey.I)
+        {
+            _context.SetInputMode(InputMode.EditingManageId);
+            return;
+        }
+        else if (key.Key == ConsoleKey.N)
+        {
+            if (!_manageSelectedId.HasValue)
+            {
+                _context.SetStatusMessage("Carregue um teste primeiro (comando L)");
+                return;
+            }
+            _context.SetInputMode(InputMode.EditingManageNumero);
+            return;
+        }
+        else if (key.Key == ConsoleKey.M)
+        {
+            if (!_manageSelectedId.HasValue)
+            {
+                _context.SetStatusMessage("Carregue um teste primeiro (comando L)");
+                return;
+            }
+            _context.SetInputMode(InputMode.EditingManageNome);
+            return;
+        }
+        else if (key.Key == ConsoleKey.D)
+        {
+            if (!_manageSelectedId.HasValue)
+            {
+                _context.SetStatusMessage("Carregue um teste primeiro (comando L)");
+                return;
+            }
+            _context.SetInputMode(InputMode.EditingManageDescricao);
+            return;
+        }
+        else if (key.Key == ConsoleKey.T)
+        {
+            if (!_manageSelectedId.HasValue)
+            {
+                _context.SetStatusMessage("Carregue um teste primeiro (comando L)");
+                return;
+            }
+            _context.SetInputMode(InputMode.EditingManageTarja);
+            return;
+        }
+        else if (key.Key == ConsoleKey.O)
+        {
+            if (!_manageSelectedId.HasValue)
+            {
+                _context.SetStatusMessage("Carregue um teste primeiro (comando L)");
+                return;
+            }
+            _context.SetInputMode(InputMode.EditingManageNotes);
+            return;
+        }
+
+        // Limpar modo de edição ativo para outros comandos
+        // Nao eh mais necessario, pois o destaque eh baseado no InputMode global
+
         if (key.Key == ConsoleKey.L)
         {
             LoadTest();
@@ -200,6 +286,8 @@ public sealed class ManageView : IConsoleView
     /// <param name="mode">Modo de edição atual.</param>
     public Task HandleEditModeInputAsync(ConsoleKeyInfo key, InputMode mode)
     {
+        // O destaque agora eh baseado no InputMode global, nao ha necessidade de _activeEditMode local
+
         switch (mode)
         {
             case InputMode.EditingManageId:
@@ -375,6 +463,7 @@ public sealed class ManageView : IConsoleView
             _manageNormalizationStatus = null;
             _manageNormalizedAt = null;
             _manageResumo = null;
+            
         }
         _context.SetStatusMessage("Campos limpos");
         _context.RequestRefresh();
@@ -540,8 +629,20 @@ public sealed class ManageView : IConsoleView
         }
     }
 
-    private string GetTarjaColoredText(string tarja)
+    private string GetTarjaColoredText(string tarja, bool isEditing = false)
     {
+        if (isEditing)
+        {
+            return tarja.ToLowerInvariant() switch
+            {
+                "verde" => "[black on yellow]Verde[/]",
+                "amarelo" => "[black on yellow]Amarelo[/]",
+                "laranja" => "[black on yellow]Laranja[/]",
+                "vermelho" => "[black on yellow]Vermelho[/]",
+                _ => $"[black on yellow]{Markup.Escape(tarja)}[/]"
+            };
+        }
+
         return tarja.ToLowerInvariant() switch
         {
             "verde" => "[green]Verde[/]",
