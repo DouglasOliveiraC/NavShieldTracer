@@ -1,7 +1,14 @@
+using System.Text;
+
 namespace NavShieldTracer.Tests.Utils;
 
 public static class ReportFormatter
 {
+    static ReportFormatter()
+    {
+        Console.OutputEncoding = Encoding.UTF8;
+    }
+
     public static void WriteSection(string title, params (string Label, string Value)[] lines)
     {
         Console.WriteLine();

@@ -129,5 +129,16 @@ public sealed class ProcessActivityTrackerTests
         public bool ExcluirTesteAtomico(int testeId) => throw new NotSupportedException();
 
         public void AtualizarTesteAtomico(int testeId, string? numero = null, string? nome = null, string? descricao = null) => throw new NotSupportedException();
+
+        public List<SessaoMonitoramento> ListarSessoes() => new();
+
+        public SessionStats ObterEstatisticasSessao(int sessionId) => new SessionStats
+        {
+            EventosPorTipo = new Dictionary<int, int>(),
+            TopIps = new List<string>(),
+            TopDomains = new List<string>(),
+            ProcessosCriados = new List<string>(),
+            TarjaTesteAssociado = null
+        };
     }
 }

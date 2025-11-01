@@ -7,7 +7,9 @@ using Spectre.Console.Rendering;
 using NavShieldTracer.Modules.Models;
 using NavShieldTracer.Modules.Monitoring;
 using NavShieldTracer.Modules.Diagnostics;
+using NavShieldTracer.Modules.Heuristics.Normalization;
 using NavShieldTracer.ConsoleApp.Services;
+using HeuristicThreatSeverityTarja = NavShieldTracer.Modules.Heuristics.Normalization.ThreatSeverityTarja;
 
 namespace NavShieldTracer.ConsoleApp.UI.Views;
 
@@ -39,6 +41,7 @@ public sealed class CatalogView : IConsoleView
     private string _postReviewObservacoes = string.Empty;
     private ThreatSeverityTarja _postReviewTarja = ThreatSeverityTarja.Verde;
     private int? _completedTestId;
+    private NormalizationSummary? _lastNormalizationSummary;
 
     /// <summary>
     /// Cria uma nova instância da view de catalogação.
@@ -116,9 +119,9 @@ public sealed class CatalogView : IConsoleView
         grid.AddRow("[yellow bold]Review do Teste Catalogado[/]");
         grid.AddRow("");
         grid.AddRow($"[grey]Teste:[/] [cyan1]{Markup.Escape(_catalogNumero)} - {Markup.Escape(_catalogNome)}[/]");
+        grid.AddRow(BuildNormalizationSummarySection());
         grid.AddRow("");
 
-        // Nível de alerta
         grid.AddRow("[cyan1 bold]1. Nivel de Alerta (Tarja)[/]");
         var tarjaOptions = new[]
         {
@@ -130,14 +133,13 @@ public sealed class CatalogView : IConsoleView
 
         foreach (var (nome, valor, cor) in tarjaOptions)
         {
-            var selected = valor == _postReviewTarja ? "► " : "  ";
+            var selected = valor == _postReviewTarja ? "->" : "  ";
             var style = valor == _postReviewTarja ? $"[{cor} bold]" : $"[{cor}]";
-            grid.AddRow($"{style}{selected}{nome}[/]");
+            grid.AddRow($"{style}{selected} {nome}[/]");
         }
 
         grid.AddRow("");
 
-        // Observações
         grid.AddRow("[cyan1 bold]2. Observacoes[/]");
         var obsDisplay = string.IsNullOrWhiteSpace(_postReviewObservacoes)
             ? "[grey italic]<nenhuma>[/]"
@@ -145,11 +147,10 @@ public sealed class CatalogView : IConsoleView
         grid.AddRow(obsDisplay);
         grid.AddRow("");
 
-        grid.AddRow("[grey]Comandos: [[1]] Mudar tarja (setas ↑/↓)  [[2]] Editar observacoes  [[S]] Salvar e finalizar  [[Esc]] Cancelar[/]");
+        grid.AddRow("[grey]Comandos: [[1]] Mudar tarja (setas cima/baixo)  [[2]] Editar observacoes  [[S]] Salvar e finalizar  [[Esc]] Cancelar[/]");
 
         return grid;
     }
-
     /// <summary>
     /// Processa entrada do usuário em modo navegação.
     /// </summary>
@@ -308,22 +309,44 @@ public sealed class CatalogView : IConsoleView
         {
             var result = await _context.AppService.StopActiveSessionAsync().ConfigureAwait(false);
 
-            // Armazenar ID do teste para o review
             var testes = _context.AppService.ListarTestes();
             var testeRecemCriado = testes.OrderByDescending(t => t.DataExecucao).FirstOrDefault();
 
             if (testeRecemCriado != null)
             {
+                NormalizationSummary? summary = null;
+                string? statusMessageOverride = null;
+
+                try
+                {
+                    summary = _context.AppService.ObterResumoNormalizacao(testeRecemCriado.Id);
+                }
+                catch (Exception ex)
+                {
+                    statusMessageOverride = $"Catalogacao finalizada, mas resumo indisponivel ({ex.Message}).";
+                }
+
                 lock (_context.StateLock)
                 {
                     _completedTestId = testeRecemCriado.Id;
-                    ResetPostReviewFields();
+                    _lastNormalizationSummary = summary;
+                    ResetPostReviewFields(summary);
                 }
-                // Modo será alterado para PostCatalogReview pelo ConsoleUI
-                _context.SetStatusMessage($"Catalogacao finalizada: {result.TotalEventos} evento(s). Pressione Enter para review.");
+
+                _context.SetInputMode(InputMode.PostCatalogReview);
+                _context.RequestRefresh();
+
+                var message = statusMessageOverride ?? $"Catalogacao finalizada: {result.TotalEventos} evento(s). Review aberto automaticamente.";
+                _context.SetStatusMessage(message);
             }
             else
             {
+                lock (_context.StateLock)
+                {
+                    _completedTestId = null;
+                    _lastNormalizationSummary = null;
+                }
+
                 _context.SetStatusMessage($"Catalogacao finalizada: {result.TotalEventos} evento(s) capturados.");
             }
         }
@@ -332,13 +355,12 @@ public sealed class CatalogView : IConsoleView
             _context.SetStatusMessage($"Erro ao finalizar catalogacao: {ex.Message}");
         }
     }
-
     private async Task HandlePostReviewNavigationAsync(ConsoleKeyInfo key)
     {
         if (key.KeyChar == '1')
         {
             // Não entra em modo de edição, usa setas para navegar
-            _context.SetStatusMessage("Use setas ↑/↓ para mudar o nivel de alerta");
+            _context.SetStatusMessage("Use setas cima/baixo para mudar o nivel de alerta");
             return;
         }
 
@@ -421,6 +443,7 @@ public sealed class CatalogView : IConsoleView
 
                 // Resetar campos
                 ResetPostReviewFields();
+                _lastNormalizationSummary = null;
                 _completedTestId = null;
             }
             else
@@ -436,12 +459,110 @@ public sealed class CatalogView : IConsoleView
         }
     }
 
-    private void ResetPostReviewFields()
+    private void ResetPostReviewFields(NormalizationSummary? summary = null)
     {
         _postReviewObservacoes = string.Empty;
-        _postReviewTarja = ThreatSeverityTarja.Verde;
+        _postReviewTarja = summary is null ? ThreatSeverityTarja.Verde : MapTarja(summary.Severity);
     }
 
+    private IRenderable BuildNormalizationSummarySection()
+    {
+        if (_lastNormalizationSummary is null)
+        {
+            return new Markup("[grey italic]Resumo de normalizacao indisponivel. Revise os logs antes de salvar o review.[/]");
+        }
+
+        var summary = _lastNormalizationSummary;
+
+        var metrics = new Table().NoBorder();
+        metrics.AddColumn(new TableColumn("[aqua]Indicador[/]").LeftAligned());
+        metrics.AddColumn(new TableColumn("[aqua]Valor[/]").LeftAligned());
+        metrics.AddRow("Status", $"[cyan]{summary.Status}[/]");
+        metrics.AddRow("Tarja heuristica", FormatSeverity(summary.Severity, summary.SeverityReason));
+        metrics.AddRow("Qualidade", $"[cyan]{summary.QualityScore:P1}[/]");
+        metrics.AddRow("Cobertura core", $"[cyan]{summary.CoveragePercent:F1}%[/]");
+        metrics.AddRow("Eventos", $"[cyan]{summary.TotalEvents}[/] (core {summary.CoreEvents} | suporte {summary.SupportEvents} | ruido {summary.NoiseEvents})");
+        metrics.AddRow("Processado em", $"[cyan]{summary.ProcessedAt:dd/MM/yyyy HH:mm:ss}[/]");
+        metrics.AddRow("Tarja selecionada", $"[yellow]{_postReviewTarja}[/]");
+
+        var blocks = new List<IRenderable> { metrics };
+
+        if (summary.Warnings.Count > 0)
+        {
+            var warningLines = summary.Warnings.Select(w => "- " + Markup.Escape(w));
+            var warningsText = string.Join("\n", warningLines);
+            var warningsPanel = new Panel(new Markup($"[yellow]{warningsText}[/]"))
+            {
+                Header = new PanelHeader("Avisos"),
+                Border = BoxBorder.Rounded
+            };
+            blocks.Add(warningsPanel);
+        }
+
+        var recommendations = BuildNormalizationRecommendations(summary);
+        if (recommendations.Count > 0)
+        {
+            var recLines = recommendations.Select(r => "- " + Markup.Escape(r));
+            var recText = string.Join("\n", recLines);
+            var recPanel = new Panel(new Markup(recText))
+            {
+                Header = new PanelHeader("Sugestoes"),
+                Border = BoxBorder.Rounded
+            };
+            blocks.Add(recPanel);
+        }
+
+        return new Rows(blocks);
+    }
+
+    private List<string> BuildNormalizationRecommendations(NormalizationSummary summary)
+    {
+        var recs = new List<string>();
+
+        if (summary.TotalEvents == 0)
+        {
+            recs.Add("Repetir o teste para capturar eventos.");
+        }
+        else
+        {
+            if (summary.CoveragePercent < 20)
+            {
+                recs.Add("Aumentar a cobertura capturando mais eventos core.");
+            }
+
+            if (summary.QualityScore < 0.6)
+            {
+                recs.Add("Avaliar parametros do teste para melhorar a qualidade.");
+            }
+        }
+
+        if (summary.Warnings.Count > 0)
+        {
+            recs.Add("Tratar os avisos listados antes de promover a assinatura.");
+        }
+
+        recs.Add("Informe observacoes relevantes antes de salvar o review.");
+        return recs.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static string FormatSeverity(HeuristicThreatSeverityTarja severity, string? reason)
+    {
+        var label = severity.ToString();
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return $"[cyan]{label}[/]";
+        }
+
+        return $"[cyan]{label}[/] [grey]({Markup.Escape(reason)})[/]";
+    }
+
+    private static ThreatSeverityTarja MapTarja(HeuristicThreatSeverityTarja severity)
+    {
+        return Enum.TryParse<ThreatSeverityTarja>(severity.ToString(), out var mapped)
+            ? mapped
+            : ThreatSeverityTarja.Verde;
+    }
+
     private void HandleEditCatalogNumero(ConsoleKeyInfo key)
     {
         if (key.Key == ConsoleKey.Backspace)
@@ -551,3 +672,12 @@ public sealed class CatalogView : IConsoleView
     /// </summary>
     public bool IsInPostReviewMode() => _completedTestId.HasValue;
 }
+
+
+
+
+
+
+
+
+

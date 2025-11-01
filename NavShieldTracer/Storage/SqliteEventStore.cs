@@ -1704,6 +1704,101 @@ namespace NavShieldTracer.Storage
         /// <summary>
         /// Carrega todas as técnicas catalogadas e normalizadas para análise.
         /// </summary>
+        internal NormalizationSummary? ObterResumoNormalizacao(int testId)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT
+                    status,
+                    severity_label,
+                    severity_reason,
+                    quality_score,
+                    total_events,
+                    core_event_count,
+                    support_event_count,
+                    noise_event_count,
+                    processed_at,
+                    feature_vector_json,
+                    quality_warnings_json,
+                    notes
+                FROM normalized_test_signatures
+                WHERE test_id = $test_id
+                ORDER BY processed_at DESC
+                LIMIT 1;
+            ";
+            cmd.Parameters.AddWithValue("$test_id", testId);
+
+            using var reader = cmd.ExecuteReader();
+            if (!reader.Read())
+            {
+                return null;
+            }
+
+            var statusText = reader.GetString(0);
+            Enum.TryParse(statusText, out NormalizationStatus status);
+
+            var severityText = reader.GetString(1);
+            Enum.TryParse(severityText, out ThreatSeverityTarja severity);
+
+            var severityReason = reader.IsDBNull(2) ? null : reader.GetString(2);
+            var qualityScore = reader.IsDBNull(3) ? 0d : reader.GetDouble(3);
+
+            var totalEvents = reader.IsDBNull(4) ? 0 : reader.GetInt32(4);
+            var coreEvents = reader.IsDBNull(5) ? 0 : reader.GetInt32(5);
+            var supportEvents = reader.IsDBNull(6) ? 0 : reader.GetInt32(6);
+            var noiseEvents = reader.IsDBNull(7) ? 0 : reader.GetInt32(7);
+
+            var processedAtRaw = reader.IsDBNull(8) ? null : reader.GetString(8);
+            DateTime processedAt;
+            if (!DateTime.TryParse(
+                    processedAtRaw,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind,
+                    out processedAt))
+            {
+                processedAt = DateTime.Now;
+            }
+
+            var featureVectorJson = reader.IsDBNull(9) ? "{}" : reader.GetString(9);
+            var featureVector = ParseFeatureVector(featureVectorJson);
+
+            var warningsJson = reader.IsDBNull(10) ? "[]" : reader.GetString(10);
+            IReadOnlyList<string> warnings = Array.Empty<string>();
+            if (!string.IsNullOrWhiteSpace(warningsJson))
+            {
+                try
+                {
+                    var parsedWarnings = JsonSerializer.Deserialize<List<string>>(warningsJson, _serializerOptions);
+                    warnings = parsedWarnings is null or { Count: 0 }
+                        ? Array.Empty<string>()
+                        : parsedWarnings.ToArray();
+                }
+                catch
+                {
+                    warnings = new[] { "Avisos indisponiveis por falha de leitura." };
+                }
+            }
+
+            var notes = reader.IsDBNull(11) ? null : reader.GetString(11);
+            var coveragePercent = totalEvents > 0 ? (coreEvents / (double)totalEvents) * 100d : 0d;
+
+            return new NormalizationSummary(
+                testId,
+                status,
+                severity,
+                severityReason,
+                qualityScore,
+                coveragePercent,
+                totalEvents,
+                coreEvents,
+                supportEvents,
+                noiseEvents,
+                processedAt,
+                featureVector,
+                warnings,
+                notes);
+        }
+
         internal List<CatalogedTechniqueContext> CarregarTecnicasCatalogadas()
         {
             var techniques = new List<CatalogedTechniqueContext>();
@@ -1729,39 +1824,7 @@ namespace NavShieldTracer.Storage
                 var techniqueId = reader.GetString(5);
                 var techniqueName = reader.GetString(6);
 
-                // Deserializar feature vector
-                var featureVectorDict = JsonSerializer.Deserialize<Dictionary<string, object>>(featureVectorJson);
-                if (featureVectorDict == null) continue;
-
-                // Extrair histograma
-                var histogram = new Dictionary<int, int>();
-                if (featureVectorDict.TryGetValue("eventTypeHistogram", out var histObj) && histObj is JsonElement histElem)
-                {
-                    foreach (var prop in histElem.EnumerateObject())
-                    {
-                        if (int.TryParse(prop.Name, out var eventId))
-                        {
-                            histogram[eventId] = prop.Value.GetInt32();
-                        }
-                    }
-                }
-
-                var processTreeDepth = featureVectorDict.TryGetValue("processTreeDepth", out var ptd) && ptd is JsonElement ptdElem ? ptdElem.GetInt32() : 0;
-                var networkConnectionsCount = featureVectorDict.TryGetValue("networkConnectionsCount", out var ncc) && ncc is JsonElement nccElem ? nccElem.GetInt32() : 0;
-                var registryOperationsCount = featureVectorDict.TryGetValue("registryOperationsCount", out var roc) && roc is JsonElement rocElem ? rocElem.GetInt32() : 0;
-                var fileOperationsCount = featureVectorDict.TryGetValue("fileOperationsCount", out var foc) && foc is JsonElement focElem ? focElem.GetInt32() : 0;
-                var temporalSpanSeconds = featureVectorDict.TryGetValue("temporalSpanSeconds", out var tss) && tss is JsonElement tssElem ? tssElem.GetDouble() : 0.0;
-                var criticalEventsCount = featureVectorDict.TryGetValue("criticalEventsCount", out var cec) && cec is JsonElement cecElem ? cecElem.GetInt32() : 0;
-
-                var featureVector = new Heuristics.Normalization.NormalizedFeatureVector(
-                    histogram,
-                    processTreeDepth,
-                    networkConnectionsCount,
-                    registryOperationsCount,
-                    fileOperationsCount,
-                    temporalSpanSeconds,
-                    criticalEventsCount
-                );
+                var featureVector = ParseFeatureVector(featureVectorJson);
 
                 // Carregar core events com ordem e tempo relativo
                 var coreEventPatterns = CarregarCoreEventPatterns(testId);
@@ -1787,6 +1850,77 @@ namespace NavShieldTracer.Storage
             }
 
             return techniques;
+        }
+
+        private NormalizedFeatureVector ParseFeatureVector(string featureVectorJson)
+        {
+            var histogram = new Dictionary<int, int>();
+            int processTreeDepth = 0;
+            int networkConnectionsCount = 0;
+            int registryOperationsCount = 0;
+            int fileOperationsCount = 0;
+            double temporalSpanSeconds = 0;
+            int criticalEventsCount = 0;
+
+            try
+            {
+                using var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(featureVectorJson) ? "{}" : featureVectorJson);
+                var root = document.RootElement;
+
+                if (root.TryGetProperty("eventTypeHistogram", out var histElem))
+                {
+                    foreach (var prop in histElem.EnumerateObject())
+                    {
+                        if (int.TryParse(prop.Name, out var eventId))
+                        {
+                            histogram[eventId] = prop.Value.GetInt32();
+                        }
+                    }
+                }
+
+                if (root.TryGetProperty("processTreeDepth", out var ptdElem))
+                {
+                    processTreeDepth = ptdElem.GetInt32();
+                }
+
+                if (root.TryGetProperty("networkConnectionsCount", out var nccElem))
+                {
+                    networkConnectionsCount = nccElem.GetInt32();
+                }
+
+                if (root.TryGetProperty("registryOperationsCount", out var rocElem))
+                {
+                    registryOperationsCount = rocElem.GetInt32();
+                }
+
+                if (root.TryGetProperty("fileOperationsCount", out var focElem))
+                {
+                    fileOperationsCount = focElem.GetInt32();
+                }
+
+                if (root.TryGetProperty("temporalSpanSeconds", out var tssElem))
+                {
+                    temporalSpanSeconds = tssElem.GetDouble();
+                }
+
+                if (root.TryGetProperty("criticalEventsCount", out var cecElem))
+                {
+                    criticalEventsCount = cecElem.GetInt32();
+                }
+            }
+            catch
+            {
+                // No-op: fallback values are already set to zero.
+            }
+
+            return new NormalizedFeatureVector(
+                histogram,
+                processTreeDepth,
+                networkConnectionsCount,
+                registryOperationsCount,
+                fileOperationsCount,
+                temporalSpanSeconds,
+                criticalEventsCount);
         }
 
         private List<CoreEventPattern> CarregarCoreEventPatterns(int testId)

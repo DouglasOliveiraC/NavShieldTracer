@@ -197,4 +197,38 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
         NormalizationQualityMetrics Quality,
         IReadOnlyList<NormalizationLogEntry> Logs
     );
+
+    /// <summary>
+    /// Resumo da normalizacao persistido para consulta e exibicao no CLI.
+    /// </summary>
+    /// <param name="TestId">ID do teste catalogado.</param>
+    /// <param name="Status">Status da normalizacao.</param>
+    /// <param name="Severity">Tarja heuristica registrada.</param>
+    /// <param name="SeverityReason">Justificativa associada a tarja.</param>
+    /// <param name="QualityScore">Pontuacao consolidada de qualidade (0.0-1.0).</param>
+    /// <param name="CoveragePercent">Cobertura percentual de eventos core.</param>
+    /// <param name="TotalEvents">Total de eventos processados.</param>
+    /// <param name="CoreEvents">Eventos classificados como core.</param>
+    /// <param name="SupportEvents">Eventos de suporte.</param>
+    /// <param name="NoiseEvents">Eventos identificados como ruido.</param>
+    /// <param name="ProcessedAt">Timestamp em que a normalizacao foi concluida.</param>
+    /// <param name="FeatureVector">Snapshot das features geradas.</param>
+    /// <param name="Warnings">Avisos emitidos durante a avaliacao de qualidade.</param>
+    /// <param name="Notes">Notas adicionais salvas na assinatura.</param>
+    internal record NormalizationSummary(
+        int TestId,
+        NormalizationStatus Status,
+        ThreatSeverityTarja Severity,
+        string? SeverityReason,
+        double QualityScore,
+        double CoveragePercent,
+        int TotalEvents,
+        int CoreEvents,
+        int SupportEvents,
+        int NoiseEvents,
+        DateTime ProcessedAt,
+        NormalizedFeatureVector FeatureVector,
+        IReadOnlyList<string> Warnings,
+        string? Notes
+    );
 }

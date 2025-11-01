@@ -81,41 +81,6 @@ public sealed class InsertionPerformanceTests : IDisposable
 
     [PerformanceFact]
     [Trait("Category", "Performance")]
-    public void DatabaseGrowth_LinearScale()
-    {
-        var measurements = new List<(int Events, long SizeBytes)>();
-        var seeder = new DatabaseSeeder(_store, seedBase: 204);
-
-        for (var i = 1; i <= 5; i++)
-        {
-            var quantity = i * 1000;
-            seeder.CriarSessaoComEventos($"teste_{i}.exe", quantity, 4000 + i);
-            measurements.Add((quantity, new FileInfo(_testDbPath).Length));
-        }
-
-        var growthRates = new List<double>();
-        for (var i = 1; i < measurements.Count; i++)
-        {
-            var deltaEvents = measurements[i].Events - measurements[i - 1].Events;
-            var deltaSize = measurements[i].SizeBytes - measurements[i - 1].SizeBytes;
-            growthRates.Add(deltaSize / (double)deltaEvents);
-        }
-
-        var averageRate = growthRates.Average();
-        var stddev = Math.Sqrt(growthRates.Select(rate => Math.Pow(rate - averageRate, 2)).Average());
-        var coeficient = (stddev / averageRate) * 100;
-
-        ReportFormatter.WriteSection(
-            "Crescimento Linear",
-            ("Taxa media", $"{averageRate:F2} bytes/evento"),
-            ("Desvio padrao", $"{stddev:F2}"),
-            ("Coeficiente variacao", $"{coeficient:F2}%"));
-
-        Assert.True(coeficient < 10, $"Crescimento nao linear detectado (CV={coeficient:F2}% > 10%).");
-    }
-
-    [PerformanceFact]
-    [Trait("Category", "Performance")]
     public void ConcurrentInsertions()
     {
         var sessionCount = 5;

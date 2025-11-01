@@ -1,3 +1,4 @@
+using System.Threading;
 using NavShieldTracer.Modules.Models;
 using NavShieldTracer.Storage;
 
@@ -11,14 +12,15 @@ public class DatabaseSeeder
     private readonly SqliteEventStore _store;
     private readonly EventSimulator _simulator;
     private readonly Random _random;
-    private int _eventRecordCounter;
+    public Random Random => _random;
+    private static int _globalEventRecordCounter = 200000;
 
     public DatabaseSeeder(SqliteEventStore store, int seedBase = 173)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _simulator = new EventSimulator(seedBase);
         _random = new Random(seedBase);
-        _eventRecordCounter = 200000 + Math.Abs(seedBase % 500000);
+        _ = seedBase; // retain parameter usage for deterministic Random seeding
     }
 
     public int CriarSessaoComEventos(
@@ -149,12 +151,13 @@ public class DatabaseSeeder
         return testeIds;
     }
 
-    private int NextRecordId()
+    private static int NextRecordId()
     {
-        var next = _eventRecordCounter++;
-        if (_eventRecordCounter > 950000)
+        var next = Interlocked.Increment(ref _globalEventRecordCounter);
+        if (next > 1_900_000)
         {
-            _eventRecordCounter = 200000;
+            Interlocked.Exchange(ref _globalEventRecordCounter, 200000);
+            next = Interlocked.Increment(ref _globalEventRecordCounter);
         }
         return next;
     }

@@ -231,6 +231,16 @@ public sealed class NavShieldAppService : IDisposable
     }
 
     /// <summary>
+    /// Recupera o resumo de normalizacao persistido para um teste catalogado.
+    /// </summary>
+    /// <param name="testeId">ID do teste.</param>
+    /// <returns>Resumo da normalizacao ou null se inexistente.</returns>
+    internal NormalizationSummary? ObterResumoNormalizacao(int testeId)
+    {
+        return _store.ObterResumoNormalizacao(testeId);
+    }
+
+    /// <summary>
     /// Lista todos os testes atômicos catalogados no banco de dados.
     /// </summary>
     /// <returns>Lista de testes atômicos catalogados.</returns>
@@ -945,4 +955,6 @@ public sealed class MonitoringSession
     /// <returns>Lista de mensagens de log formatadas com timestamp.</returns>
     public IReadOnlyList<string> GetLogs() => _logs.ToArray();
 }
+
+
 

@@ -47,6 +47,18 @@ public class EventSimulator
         @"HKLM\SOFTWARE\Policies\Microsoft\Windows\Defender"
     };
 
+    private static readonly string[] PipeNames =
+    {
+        @"\msagent_", @"\mojo_", @"\chromesync", @"\PSHost.",
+        @"\crashpad_", @"\LOCAL\DataTransferPipe", @"\ntsvcs",
+        @"\PIPE\srvsvc", @"\samr", @"\lsarpc"
+    };
+
+    private static readonly string[] TargetProcesses =
+    {
+        "lsass.exe", "services.exe", "winlogon.exe", "csrss.exe"
+    };
+
     public EventSimulator(int? seed = null)
     {
         var baseSeed = seed ?? 42;
@@ -226,10 +238,154 @@ public class EventSimulator
         };
     }
 
+    public EventoProcessoEncerrado GerarProcessoEncerrado(int processId)
+    {
+        var processName = ProcessNames[_random.Next(ProcessNames.Length)];
+        var imagePath = Path.Combine(@"C:\Windows\System32", processName);
+
+        return new EventoProcessoEncerrado
+        {
+            EventRecordId = GenerateRecordId(),
+            EventId = 5,
+            ComputerName = Environment.MachineName,
+            UtcTime = DateTime.UtcNow,
+            ProcessGuid = Guid.NewGuid().ToString("B"),
+            ProcessId = processId,
+            Imagem = imagePath
+        };
+    }
+
+    public EventoAcessoProcesso GerarProcessAccess(int sourceProcessId, int targetProcessId)
+    {
+        var sourceName = ProcessNames[_random.Next(ProcessNames.Length)];
+        // 30% de chance de ser um processo crítico (lsass, etc)
+        var targetName = _random.Next(0, 10) < 3
+            ? TargetProcesses[_random.Next(TargetProcesses.Length)]
+            : ProcessNames[_random.Next(ProcessNames.Length)];
+
+        var sourcePath = Path.Combine(@"C:\Program Files", sourceName);
+        var targetPath = Path.Combine(@"C:\Windows\System32", targetName);
+
+        // Access masks comuns para injeção de processo
+        var accessMasks = new[] { "0x1410", "0x1438", "0x1FFFFF", "0x1000" };
+
+        return new EventoAcessoProcesso
+        {
+            EventRecordId = GenerateRecordId(),
+            EventId = 10,
+            ComputerName = Environment.MachineName,
+            UtcTime = DateTime.UtcNow,
+            ProcessGuidOrigem = Guid.NewGuid().ToString("B"),
+            ProcessIdOrigem = sourceProcessId,
+            ImagemOrigem = sourcePath,
+            ProcessGuidDestino = Guid.NewGuid().ToString("B"),
+            ProcessIdDestino = targetProcessId,
+            ImagemDestino = targetPath,
+            DireitosAcesso = accessMasks[_random.Next(accessMasks.Length)],
+            TipoChamada = "OpenProcess",
+            UsuarioOrigem = $"{Environment.MachineName}\\{Environment.UserName}"
+        };
+    }
+
+    public EventoArquivoExcluido GerarFileDelete(int processId)
+    {
+        var processName = ProcessNames[_random.Next(ProcessNames.Length)];
+        var extension = FileExtensions[_random.Next(FileExtensions.Length)];
+        var fileName = $"evidence_{_random.Next(1, 5000)}{extension}";
+        var imagePath = Path.Combine(@"C:\Program Files", processName);
+        var targetPath = Path.Combine(@"C:\Users", Environment.UserName, "AppData", "Local", "Temp", fileName);
+
+        return new EventoArquivoExcluido
+        {
+            EventRecordId = GenerateRecordId(),
+            EventId = 23,
+            ComputerName = Environment.MachineName,
+            UtcTime = DateTime.UtcNow,
+            ProcessGuid = Guid.NewGuid().ToString("B"),
+            ProcessId = processId,
+            Imagem = imagePath,
+            ArquivoAlvo = targetPath,
+            Usuario = $"{Environment.MachineName}\\{Environment.UserName}",
+            Hashes = $"SHA256={GenerateRandomHash()}",
+            Arquivado = _random.Next(0, 2) == 0
+        };
+    }
+
+    public EventoPipeCriado GerarPipeCreated(int processId)
+    {
+        var processName = ProcessNames[_random.Next(ProcessNames.Length)];
+        var imagePath = Path.Combine(@"C:\Program Files", processName);
+
+        // 20% de chance de usar nome de pipe suspeito
+        var pipeName = _random.Next(0, 10) < 2
+            ? $@"\msagent_{_random.Next(1000, 9999)}"
+            : PipeNames[_random.Next(PipeNames.Length)] + _random.Next(100, 999);
+
+        return new EventoPipeCriado
+        {
+            EventRecordId = GenerateRecordId(),
+            EventId = 17,
+            ComputerName = Environment.MachineName,
+            UtcTime = DateTime.UtcNow,
+            ProcessGuid = Guid.NewGuid().ToString("B"),
+            ProcessId = processId,
+            NomePipe = pipeName,
+            Imagem = imagePath,
+            Usuario = $"{Environment.MachineName}\\{Environment.UserName}"
+        };
+    }
+
+    public EventoPipeConectado GerarPipeConnected(int processId)
+    {
+        var processName = ProcessNames[_random.Next(ProcessNames.Length)];
+        var imagePath = Path.Combine(@"C:\Windows\System32", processName);
+
+        // 20% de chance de conectar a pipe suspeito
+        var pipeName = _random.Next(0, 10) < 2
+            ? $@"\msagent_{_random.Next(1000, 9999)}"
+            : PipeNames[_random.Next(PipeNames.Length)] + _random.Next(100, 999);
+
+        return new EventoPipeConectado
+        {
+            EventRecordId = GenerateRecordId(),
+            EventId = 18,
+            ComputerName = Environment.MachineName,
+            UtcTime = DateTime.UtcNow,
+            ProcessGuid = Guid.NewGuid().ToString("B"),
+            ProcessId = processId,
+            NomePipe = pipeName,
+            Imagem = imagePath,
+            Usuario = $"{Environment.MachineName}\\{Environment.UserName}"
+        };
+    }
+
+    public EventoWmi GerarWmiFilter(int processId)
+    {
+        var wmiQueries = new[]
+        {
+            "SELECT * FROM __InstanceModificationEvent WITHIN 60 WHERE TargetInstance ISA 'Win32_PerfFormattedData_PerfOS_System'",
+            "SELECT * FROM __InstanceCreationEvent WITHIN 5 WHERE TargetInstance ISA 'Win32_Process'",
+            "SELECT * FROM Win32_Process WHERE Name = 'explorer.exe'",
+            "SELECT * FROM Win32_LogicalDisk WHERE DriveType = 3"
+        };
+
+        return new EventoWmi
+        {
+            EventRecordId = GenerateRecordId(),
+            EventId = 19,
+            ComputerName = Environment.MachineName,
+            UtcTime = DateTime.UtcNow,
+            Operacao = "Created",
+            Usuario = $"{Environment.MachineName}\\{Environment.UserName}",
+            Nome = "MaliciousFilter" + _random.Next(1, 100),
+            Query = wmiQueries[_random.Next(wmiQueries.Length)]
+        };
+    }
+
     public List<EventoSysmonBase> GerarEventosMistos(int quantidade, int baseProcessId = 1000)
     {
         var eventos = new List<EventoSysmonBase>(quantidade);
-        var eventTypes = new[] { 1, 3, 7, 8, 11, 13, 22 };
+        var eventTypes = new[] { 1, 3, 5, 7, 8, 10, 11, 13, 17, 18, 19, 22, 23 };
 
         for (var i = 0; i < quantidade; i++)
         {
@@ -240,11 +396,17 @@ public class EventSimulator
             {
                 1 => GerarProcessoCriado(processId, processId - 1),
                 3 => GerarConexaoRede(processId),
+                5 => GerarProcessoEncerrado(processId),
                 7 => GerarImagemCarregada(processId),
                 8 => GerarCreateRemoteThread(processId, processId + 1),
+                10 => GerarProcessAccess(processId, processId + 10),
                 11 => GerarArquivoCriado(processId),
                 13 => GerarAcessoRegistro(processId),
+                17 => GerarPipeCreated(processId),
+                18 => GerarPipeConnected(processId),
+                19 => GerarWmiFilter(processId),
                 22 => GerarDnsQuery(processId),
+                23 => GerarFileDelete(processId),
                 _ => GerarProcessoCriado(processId, processId - 1)
             });
         }
