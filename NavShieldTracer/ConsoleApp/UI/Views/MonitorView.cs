@@ -5,7 +5,9 @@ using System.Threading.Tasks;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 using NavShieldTracer.ConsoleApp.Services;
+using NavShieldTracer.Modules.Heuristics.Engine;
 using NavShieldTracer.Modules.Diagnostics;
+using HeuristicThreatSeverityTarja = NavShieldTracer.Modules.Heuristics.Normalization.ThreatSeverityTarja;
 
 namespace NavShieldTracer.ConsoleApp.UI.Views;
 
@@ -67,15 +69,35 @@ public sealed class MonitorView : IConsoleView
             grid.AddRow("").AddRow("[green bold]═══ Sessao Ativa ═══[/]").AddRow("");
 
             var duration = now - activeSession.StartedAt;
-            var threatLevel = GetThreatLevel(activeSession);
-            var threatColor = ResolveThreatColor(threatLevel);
+            var heuristicSnapshot = activeSession.HeuristicSnapshot;
+            var threatLevel = heuristicSnapshot?.SessionThreatLevel ?? HeuristicThreatSeverityTarja.Verde;
+            var threatMarkupColor = ResolveThreatMarkupColor(threatLevel);
 
             grid.AddRow($"[grey]Alvo:[/] [green]{Markup.Escape(activeSession.TargetExecutable)}[/]");
             grid.AddRow($"[grey]Eventos:[/] [cyan1]{activeSession.TotalEventos}[/]");
             grid.AddRow($"[grey]Processos ativos:[/] [yellow]{activeSession.Statistics.ProcessosAtivos}[/]");
             grid.AddRow($"[grey]Processos encerrados:[/] [yellow]{activeSession.Statistics.ProcessosEncerrados}[/]");
             grid.AddRow($"[grey]Duracao:[/] [cyan1]{duration:hh\\:mm\\:ss}[/]");
-            grid.AddRow($"[grey]Nivel de Alerta:[/] [{threatColor} bold]{ResolveThreatText(threatLevel)}[/]");
+            grid.AddRow($"[grey]Nivel de Alerta:[/] [{threatMarkupColor} bold]{ResolveThreatText(threatLevel)}[/]");
+
+            grid.AddRow("");
+            grid.AddRow("[grey bold]Analise Heuristica[/]");
+            grid.AddRow("");
+
+            if (heuristicSnapshot is null)
+            {
+                grid.AddRow("[grey italic]Monitor heuristico aguardando eventos suficientes para avaliar esta sessao.[/]");
+            }
+            else
+            {
+                grid.AddRow(BuildHeuristicSummaryPanel(heuristicSnapshot));
+
+                var matchesTable = BuildTopMatchesTable(heuristicSnapshot);
+                if (matchesTable is not null)
+                {
+                    grid.AddRow(matchesTable);
+                }
+            }
 
             if (activeSession.Statistics.ProcessosAtivosDetalhados.Count > 0)
             {
@@ -602,50 +624,110 @@ public sealed class MonitorView : IConsoleView
         _selectedProcessIndex = -1;
     }
 
-    private ThreatLevel GetThreatLevel(MonitoringSessionSnapshot session)
+    private static Panel BuildHeuristicSummaryPanel(SessionSnapshot snapshot)
     {
-        var counts = _context.AppService.GetCriticalEventCounts(session.SessionId);
+        var infoGrid = new Grid();
+        infoGrid.AddColumn(new GridColumn().NoWrap());
+        infoGrid.AddColumn(new GridColumn());
 
-        if (counts.GetValueOrDefault(8) > 0 || counts.GetValueOrDefault(25) > 0)
-            return ThreatLevel.Severo;
+        infoGrid.AddRow(
+            new Markup("[grey]Atualizado:[/]"),
+            new Markup($"[silver]{snapshot.SnapshotAt:HH\\:mm\\:ss}[/]"));
+        infoGrid.AddRow(
+            new Markup("[grey]Eventos analisados:[/]"),
+            new Markup($"[cyan1]{snapshot.EventCountAtSnapshot}[/]"));
+        infoGrid.AddRow(
+            new Markup("[grey]Processos ativos:[/]"),
+            new Markup($"[yellow]{snapshot.ActiveProcessesCount}[/]"));
+        infoGrid.AddRow(
+            new Markup("[grey]Tarja heuristica:[/]"),
+            new Markup($"[{ResolveThreatMarkupColor(snapshot.SessionThreatLevel)} bold]{ResolveThreatText(snapshot.SessionThreatLevel)}[/]"));
 
-        if (counts.GetValueOrDefault(23) > 20)
-            return ThreatLevel.Severo;
+        var highestMatch = snapshot.HighestMatch;
+        if (highestMatch is not null)
+        {
+            var matchColor = ResolveThreatMarkupColor(highestMatch.ThreatLevel);
+            infoGrid.AddRow(
+                new Markup("[grey]Tecnica dominante:[/]"),
+                new Markup($"[{matchColor}]{Markup.Escape(highestMatch.TechniqueId)}[/] [grey]-[/] {Markup.Escape(highestMatch.TechniqueName)}"));
+            infoGrid.AddRow(
+                new Markup("[grey]Similaridade/Confianca:[/]"),
+                new Markup($"[cyan1]{highestMatch.Similarity:P1}[/] • {highestMatch.Confidence.ToUpperInvariant()}"));
+        }
+        else
+        {
+            infoGrid.AddRow(
+                new Markup("[grey]Tecnica dominante:[/]"),
+                new Markup("[grey70]Nenhuma correlacao ativa[/]"));
+        }
 
-        if (counts.GetValueOrDefault(3) > 50 || counts.GetValueOrDefault(10) > 10)
-            return ThreatLevel.Alto;
-
-        if (counts.GetValueOrDefault(23) is > 5 and <= 20)
-            return ThreatLevel.Alto;
-
-        if (counts.GetValueOrDefault(2) > 0 || (counts.GetValueOrDefault(13) > 10 && counts.GetValueOrDefault(17) > 0))
-            return ThreatLevel.Medio;
-
-        if (counts.GetValueOrDefault(22) > 20 || counts.GetValueOrDefault(1) > 15)
-            return ThreatLevel.Moderado;
-
-        if (counts.GetValueOrDefault(13) > 5 || counts.GetValueOrDefault(3) > 10)
-            return ThreatLevel.Moderado;
-
-        return ThreatLevel.Baixo;
+        var panel = new Panel(infoGrid)
+        {
+            Border = BoxBorder.Rounded
+        };
+        panel.BorderStyle = new Style(foreground: ResolveThreatSpectreColor(snapshot.SessionThreatLevel));
+        panel.Header = new PanelHeader("Monitor Heuristico", Justify.Center);
+        return panel;
     }
 
-    private static string ResolveThreatText(ThreatLevel level) => level switch
+    private static Table? BuildTopMatchesTable(SessionSnapshot snapshot)
     {
-        ThreatLevel.Severo => "SEVERO",
-        ThreatLevel.Alto => "ALTO",
-        ThreatLevel.Medio => "MEDIO",
-        ThreatLevel.Moderado => "MODERADO",
-        _ => "BAIXO"
+        var topMatches = snapshot.Matches
+            .OrderByDescending(m => m.Similarity)
+            .Take(3)
+            .ToList();
+
+        if (topMatches.Count == 0)
+        {
+            return null;
+        }
+
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .BorderColor(Color.Grey)
+            .AddColumn("[grey]Tecnica[/]")
+            .AddColumn("[grey]Tarja[/]")
+            .AddColumn("[grey]Similaridade[/]")
+            .AddColumn("[grey]Confianca[/]");
+
+        foreach (var match in topMatches)
+        {
+            var matchColor = ResolveThreatMarkupColor(match.ThreatLevel);
+            table.AddRow(
+                $"[white]{Markup.Escape(match.TechniqueId)}[/] [grey]-[/] {Markup.Escape(match.TechniqueName)}",
+                $"[{matchColor}]{ResolveThreatText(match.ThreatLevel)}[/]",
+                $"[cyan1]{match.Similarity:P1}[/]",
+                $"[cyan1]{match.Confidence.ToUpperInvariant()}[/]");
+        }
+
+        return table;
+    }
+
+    private static string ResolveThreatText(HeuristicThreatSeverityTarja level) => level switch
+    {
+        HeuristicThreatSeverityTarja.Verde => "VERDE",
+        HeuristicThreatSeverityTarja.Amarelo => "AMARELA",
+        HeuristicThreatSeverityTarja.Laranja => "LARANJA",
+        HeuristicThreatSeverityTarja.Vermelho => "VERMELHA",
+        _ => "DESCONHECIDA"
     };
 
-    private static string ResolveThreatColor(ThreatLevel level) => level switch
+    private static string ResolveThreatMarkupColor(HeuristicThreatSeverityTarja level) => level switch
     {
-        ThreatLevel.Severo => "red",
-        ThreatLevel.Alto => "orange3",
-        ThreatLevel.Medio => "yellow",
-        ThreatLevel.Moderado => "blue",
-        _ => "green"
+        HeuristicThreatSeverityTarja.Verde => "green3",
+        HeuristicThreatSeverityTarja.Amarelo => "yellow1",
+        HeuristicThreatSeverityTarja.Laranja => "orange3",
+        HeuristicThreatSeverityTarja.Vermelho => "red1",
+        _ => "grey"
+    };
+
+    private static Color ResolveThreatSpectreColor(HeuristicThreatSeverityTarja level) => level switch
+    {
+        HeuristicThreatSeverityTarja.Verde => Color.Green,
+        HeuristicThreatSeverityTarja.Amarelo => Color.Yellow,
+        HeuristicThreatSeverityTarja.Laranja => Color.Orange3,
+        HeuristicThreatSeverityTarja.Vermelho => Color.Red,
+        _ => Color.Grey
     };
 
     /// <summary>

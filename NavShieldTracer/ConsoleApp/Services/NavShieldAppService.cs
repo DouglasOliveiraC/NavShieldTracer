@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using NavShieldTracer.Modules.Diagnostics;
 using NavShieldTracer.Modules.Heuristics.Normalization;
 using NavShieldTracer.Modules.Monitoring;
+using NavShieldTracer.Modules.Heuristics.Engine;
 using NavShieldTracer.Modules.Models;
 using NavShieldTracer.Storage;
 
@@ -294,8 +295,6 @@ public sealed class NavShieldAppService : IDisposable
     /// </summary>
     /// <param name="sessionId">ID da sessão a ser analisada.</param>
     /// <returns>Dicionário com Event ID como chave e contagem como valor.</returns>
-    public Dictionary<int, int> GetCriticalEventCounts(int sessionId) => _store.GetCriticalEventCounts(sessionId);
-
     /// <summary>
     /// Obtém um snapshot da sessão de monitoramento ativa, se houver.
     /// </summary>
@@ -326,6 +325,19 @@ public sealed class NavShieldAppService : IDisposable
             totalEventos = 0;
         }
 
+        SessionSnapshot? heuristicSnapshot = null;
+        if (session.Kind == MonitoringSessionType.Monitor)
+        {
+            try
+            {
+                heuristicSnapshot = _store.ObterUltimoSnapshotDeSimilaridade(session.SessionId);
+            }
+            catch
+            {
+                heuristicSnapshot = null;
+            }
+        }
+
         return new MonitoringSessionSnapshot(
             session.SessionId,
             session.Kind,
@@ -333,7 +345,8 @@ public sealed class NavShieldAppService : IDisposable
             session.StartedAt,
             totalEventos,
             stats,
-            session.GetLogs());
+            session.GetLogs(),
+            heuristicSnapshot);
     }
 
     /// <summary>
@@ -392,10 +405,18 @@ public sealed class NavShieldAppService : IDisposable
         tracker.SetLogger(session.AppendLog);
         var monitor = new SysmonEventMonitor(tracker, _sysmonLogName, session.AppendLog);
         session.AttachMonitor(monitor);
+        BackgroundThreatMonitor? threatMonitor = null;
+
+        if (kind == MonitoringSessionType.Monitor)
+        {
+            threatMonitor = new BackgroundThreatMonitor(_store, sessionId);
+            session.AttachThreatMonitor(threatMonitor);
+        }
 
         try
         {
             monitor.Start();
+            threatMonitor?.Start();
         }
         catch (Exception ex)
         {
@@ -412,6 +433,18 @@ public sealed class NavShieldAppService : IDisposable
                     // ignore cleanup failure
                 }
             }
+            if (threatMonitor is not null)
+            {
+                try
+                {
+                    threatMonitor.Stop();
+                }
+                catch
+                {
+                    // ignore cleanup failure
+                }
+                threatMonitor.Dispose();
+            }
             throw;
         }
 
@@ -427,6 +460,10 @@ public sealed class NavShieldAppService : IDisposable
         }
 
         session.AppendLog($"Sessao iniciada para '{normalizedExecutable}'.");
+        if (threatMonitor is not null)
+        {
+            session.AppendLog("Monitor heuristico ativado. Analise comportamental em execucao.");
+        }
         return session;
     }
 
@@ -459,6 +496,22 @@ public sealed class NavShieldAppService : IDisposable
         catch (Exception ex)
         {
             session.AppendLog($"Aviso: falha ao parar monitoramento ({ex.Message}).");
+        }
+
+        if (session.ThreatMonitor is not null)
+        {
+            try
+            {
+                session.ThreatMonitor.Stop();
+            }
+            catch (Exception ex)
+            {
+                session.AppendLog($"Aviso: falha ao parar monitor heuristico ({ex.Message}).");
+            }
+            finally
+            {
+                session.ThreatMonitor.Dispose();
+            }
         }
 
         var endedAt = DateTime.Now;
@@ -826,7 +879,8 @@ public sealed record MonitoringSessionSnapshot(
     DateTime StartedAt,
     int TotalEventos,
     ProcessActivityStatistics Statistics,
-    IReadOnlyList<string> Logs);
+    IReadOnlyList<string> Logs,
+    SessionSnapshot? HeuristicSnapshot);
 
 /// <summary>
 /// Resultado de uma sessão de monitoramento finalizada.
@@ -925,11 +979,18 @@ public sealed class MonitoringSession
     /// <summary>Monitor de eventos do Sysmon anexado a esta sessão.</summary>
     public SysmonEventMonitor Monitor { get; private set; } = null!;
 
+    /// <summary>Monitor heurístico associado (apenas sessões Monitor).</summary>
+    public BackgroundThreatMonitor? ThreatMonitor { get; private set; }
+
+
     /// <summary>
     /// Anexa um monitor de eventos do Sysmon à sessão.
     /// </summary>
     /// <param name="monitor">Monitor a ser anexado.</param>
     public void AttachMonitor(SysmonEventMonitor monitor) => Monitor = monitor;
+
+    /// <summary>Anexa o monitor heurístico à sessão.</summary>
+    public void AttachThreatMonitor(BackgroundThreatMonitor monitor) => ThreatMonitor = monitor;
 
     /// <summary>
     /// Adiciona uma mensagem de log à fila de logs da sessão.

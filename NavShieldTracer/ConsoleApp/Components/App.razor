@@ -129,7 +129,6 @@ else
             <MonitorTab UseCompactLayout="UseCompactLayout"
                         SysmonStatus="_sysmonStatus"
                         ActiveSession="_activeSession"
-                        CriticalEventCounts="_criticalEventCounts"
                         CurrentTime="_now"
                         OnSessionStateChanged="HandleMonitorSessionChangedAsync" />
             break;
@@ -274,7 +273,6 @@ else
     private DashboardSnapshot _dashboard = null!;
     private SysmonStatus _sysmonStatus = null!;
     private MonitoringSessionSnapshot? _activeSession;
-    private IReadOnlyDictionary<int, int> _criticalEventCounts = new Dictionary<int, int>();
     private AppTab _activeTab = AppTab.Overview;
     private bool _initialized;
     private CancellationTokenSource? _refreshLoop;
@@ -324,8 +322,7 @@ else
     {
         return Task.Run(() =>
         {
-            MonitoringSessionSnapshot? snapshot = null;
-            IReadOnlyDictionary<int, int> critical;
+            MonitoringSessionSnapshot? snapshot;
 
             try
             {
@@ -336,24 +333,7 @@ else
                 snapshot = null;
             }
 
-            if (snapshot is not null)
-            {
-                try
-                {
-                    critical = AppService.GetCriticalEventCounts(snapshot.SessionId);
-                }
-                catch
-                {
-                    critical = new Dictionary<int, int>();
-                }
-            }
-            else
-            {
-                critical = new Dictionary<int, int>();
-            }
-
             _activeSession = snapshot;
-            _criticalEventCounts = critical;
         });
     }
 

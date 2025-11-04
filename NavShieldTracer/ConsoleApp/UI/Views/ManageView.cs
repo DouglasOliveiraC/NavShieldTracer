@@ -27,6 +27,8 @@ public sealed class ManageView : IConsoleView
     private string? _manageNormalizationStatus;
     private DateTime? _manageNormalizedAt;
     private ResumoTesteAtomico? _manageResumo;
+    private bool _awaitingDeleteConfirmation;
+    private DateTime _deleteConfirmationExpiresAt;
 
     /// <summary>
     /// Cria uma nova instância da view de gerenciamento.
@@ -254,8 +256,11 @@ public sealed class ManageView : IConsoleView
             return;
         }
 
-        // Limpar modo de edição ativo para outros comandos
-        // Nao eh mais necessario, pois o destaque eh baseado no InputMode global
+        if (key.Key != ConsoleKey.X && _awaitingDeleteConfirmation)
+        {
+            _awaitingDeleteConfirmation = false;
+            _context.SetStatusMessage("Solicitacao de exclusao cancelada.");
+        }
 
         if (key.Key == ConsoleKey.L)
         {
@@ -434,12 +439,29 @@ public sealed class ManageView : IConsoleView
             return;
         }
 
+        if (_awaitingDeleteConfirmation && DateTime.UtcNow > _deleteConfirmationExpiresAt)
+        {
+            _awaitingDeleteConfirmation = false;
+        }
+
+        if (!_awaitingDeleteConfirmation)
+        {
+            _awaitingDeleteConfirmation = true;
+            _deleteConfirmationExpiresAt = DateTime.UtcNow.AddSeconds(10);
+            _context.SetStatusMessage(
+                $"Confirme a exclusao do teste {_manageSelectedId.Value}: pressione X novamente em ate 10 segundos (qualquer outra tecla cancela).");
+            return;
+        }
+
+        _awaitingDeleteConfirmation = false;
+
         var success = _context.AppService.ExcluirTeste(_manageSelectedId.Value);
 
         if (success)
         {
-            _context.SetStatusMessage($"Teste {_manageSelectedId.Value} excluído com sucesso");
-            ResetManageState();
+            var deletedId = _manageSelectedId.Value;
+            ResetManageState(announce: false);
+            _context.SetStatusMessage($"Teste {deletedId} excluído com sucesso");
         }
         else
         {
@@ -447,7 +469,7 @@ public sealed class ManageView : IConsoleView
         }
     }
 
-    private void ResetManageState()
+    private void ResetManageState(bool announce = true)
     {
         lock (_context.StateLock)
         {
@@ -463,9 +485,12 @@ public sealed class ManageView : IConsoleView
             _manageNormalizationStatus = null;
             _manageNormalizedAt = null;
             _manageResumo = null;
-            
+            _awaitingDeleteConfirmation = false;
         }
-        _context.SetStatusMessage("Campos limpos");
+        if (announce)
+        {
+            _context.SetStatusMessage("Campos limpos");
+        }
         _context.RequestRefresh();
     }
 

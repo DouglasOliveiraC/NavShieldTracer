@@ -12,7 +12,7 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
     /// Thread em background que executa análise contínua de ameaças em tempo real.
     /// Roda a cada intervalo configurado (padrão: 10 segundos).
     /// </summary>
-    internal class BackgroundThreatMonitor : IDisposable
+    public class BackgroundThreatMonitor : IDisposable
     {
         private readonly SqliteEventStore _store;
         private readonly SimilarityEngine _similarityEngine;
@@ -177,10 +177,10 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
             var (newLevel, reason, triggerTechniqueId, triggerSimilarity) =
                 _classifier.ClassifySession(matches, _currentThreatLevel);
 
-            // 6. Verificar se deve gerar alerta
+            ThreatAlert? pendingAlert = null;
             if (_classifier.ShouldAlert(_currentThreatLevel, newLevel))
             {
-                var alert = new ThreatAlert(
+                pendingAlert = new ThreatAlert(
                     _sessionId,
                     DateTime.Now,
                     _currentThreatLevel,
@@ -188,23 +188,11 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
                     reason,
                     triggerTechniqueId,
                     triggerSimilarity,
-                    null // snapshot_id será preenchido após salvar snapshot
-                );
-
-                // Salvar alerta no banco
-                var alertId = await Task.Run(() => _store.SalvarAlerta(alert));
-
-                // Atualizar contador
-                Interlocked.Increment(ref _alertCount);
-
-                // Disparar evento
-                AlertGenerated?.Invoke(this, alert);
+                    null);
             }
 
-            // 7. Atualizar nível atual
             _currentThreatLevel = newLevel;
 
-            // 8. Criar e salvar snapshot
             var snapshot = new SessionSnapshot(
                 _sessionId,
                 DateTime.Now,
@@ -214,13 +202,20 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
                 sessionStats.ActiveProcesses
             );
 
-            await Task.Run(() => _store.SalvarSnapshot(snapshot));
-
+            var snapshotId = await Task.Run(() => _store.SalvarSnapshot(snapshot));
             // Atualizar contador
             Interlocked.Increment(ref _snapshotCount);
 
             // Disparar evento
             SnapshotGenerated?.Invoke(this, snapshot);
+
+            if (pendingAlert is not null)
+            {
+                var alertWithSnapshot = pendingAlert with { SnapshotId = snapshotId };
+                await Task.Run(() => _store.SalvarAlerta(alertWithSnapshot));
+                Interlocked.Increment(ref _alertCount);
+                AlertGenerated?.Invoke(this, alertWithSnapshot);
+            }
         }
 
         /// <summary>

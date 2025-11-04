@@ -1,3 +1,4 @@
+using NavShieldTracer.Modules.Heuristics.Engine;
 using NavShieldTracer.Modules.Models;
 using NavShieldTracer.Modules.Monitoring;
 using NavShieldTracer.Storage;
@@ -113,8 +114,6 @@ public sealed class ProcessActivityTrackerTests
 
         public void FinalizarTesteAtomico(int testeId, int totalEventos) => throw new NotSupportedException();
 
-        public Dictionary<int, int> GetCriticalEventCounts(int sessionId) => throw new NotSupportedException();
-
         public int IniciarTesteAtomico(NovoTesteAtomico novoTeste, int sessionId) => throw new NotSupportedException();
 
         public void InsertEvent(int sessionId, object data)
@@ -129,6 +128,8 @@ public sealed class ProcessActivityTrackerTests
         public bool ExcluirTesteAtomico(int testeId) => throw new NotSupportedException();
 
         public void AtualizarTesteAtomico(int testeId, string? numero = null, string? nome = null, string? descricao = null) => throw new NotSupportedException();
+
+        public SessionSnapshot? ObterUltimoSnapshotDeSimilaridade(int sessionId) => null;
 
         public List<SessaoMonitoramento> ListarSessoes() => new();
 

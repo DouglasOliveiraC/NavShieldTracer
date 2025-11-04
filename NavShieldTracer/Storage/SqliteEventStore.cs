@@ -1215,32 +1215,6 @@ namespace NavShieldTracer.Storage
         /// - Event ID 23: FileDelete (ransomware, sabotagem)
         /// - Event ID 25: ProcessTampering (adulteração de processos)
         /// </remarks>
-        public Dictionary<int, int> GetCriticalEventCounts(int sessionId)
-        {
-            var result = new Dictionary<int, int>();
-
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = @"
-                SELECT event_id, COUNT(*) as count
-                FROM events
-                WHERE session_id = $session_id
-                  AND event_id IN (1, 2, 3, 8, 10, 13, 17, 22, 23, 25)
-                GROUP BY event_id
-                ORDER BY event_id;
-            ";
-            cmd.Parameters.AddWithValue("$session_id", sessionId);
-
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read())
-            {
-                int eventId = reader.GetInt32(0);
-                int count = reader.GetInt32(1);
-                result[eventId] = count;
-            }
-
-            return result;
-        }
-
         /// <summary>
         /// Atualiza informações de um teste catalogado
         /// </summary>
@@ -2088,7 +2062,45 @@ namespace NavShieldTracer.Storage
         /// Obtém todos os snapshots de similaridade para uma sessão específica.
         /// </summary>
         /// <param name="sessionId">ID da sessão.</param>
-        /// <returns>Lista de snapshots de similaridade.</returns>
+        /// <returns>Snapshot mais recente ou null se inexistente.</returns>
+        public SessionSnapshot? ObterUltimoSnapshotDeSimilaridade(int sessionId)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT
+                    id, session_id, snapshot_at, matches, session_threat_level,
+                    event_count_at_snapshot, active_processes_count
+                FROM session_similarity_snapshots
+                WHERE session_id = $session_id
+                ORDER BY snapshot_at DESC
+                LIMIT 1;
+            ";
+            cmd.Parameters.AddWithValue("$session_id", sessionId);
+
+            using var reader = cmd.ExecuteReader();
+            if (!reader.Read())
+            {
+                return null;
+            }
+
+            var snapshotAt = DateTime.Parse(reader.GetString(2));
+            var matchesJson = reader.GetString(3);
+            var sessionThreatLevel = Enum.Parse<ThreatSeverityTarja>(reader.GetString(4));
+            var eventCount = reader.GetInt32(5);
+            var activeProcessesCount = reader.IsDBNull(6) ? 0 : reader.GetInt32(6);
+
+            var matches = DeserializeMatches(matchesJson);
+
+            return new SessionSnapshot(
+                sessionId,
+                snapshotAt,
+                matches,
+                sessionThreatLevel,
+                eventCount,
+                activeProcessesCount
+            );
+        }
+
         internal IReadOnlyList<SessionSnapshot> ObterSnapshotsDeSimilaridade(int sessionId)
         {
             var snapshots = new List<SessionSnapshot>();

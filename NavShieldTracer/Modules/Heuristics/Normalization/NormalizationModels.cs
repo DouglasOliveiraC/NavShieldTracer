@@ -6,7 +6,7 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
     /// <summary>
     /// Representa a severidade global (tarja) atribuída ao teste catalogado.
     /// </summary>
-    internal enum ThreatSeverityTarja
+    public enum ThreatSeverityTarja
     {
         Verde,
         Amarelo,

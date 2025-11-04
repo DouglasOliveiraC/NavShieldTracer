@@ -60,22 +60,6 @@ public enum InputMode
     EditingCatalogObservacoes
 }
 
-/// <summary>
-/// Nível de ameaça detectado durante monitoramento.
-/// </summary>
-public enum ThreatLevel
-{
-    /// <summary>Ameaça baixa.</summary>
-    Baixo,
-    /// <summary>Ameaça moderada.</summary>
-    Moderado,
-    /// <summary>Ameaça média.</summary>
-    Medio,
-    /// <summary>Ameaça alta.</summary>
-    Alto,
-    /// <summary>Ameaça severa.</summary>
-    Severo
-}
 
 /// <summary>
 /// Fonte de seleção de processos.

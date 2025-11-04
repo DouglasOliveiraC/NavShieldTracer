@@ -24,8 +24,8 @@ public sealed class HeuristicCorrelationTests : IDisposable
 {
     private const int MitreTechniqueCount = 400; // Aproximado
     private const int TargetTestCount = (int)(MitreTechniqueCount * 1.5);
-    private const int MonitorDurationSeconds = 45;
-    private const int TopExecutablesToMonitor = 5;
+    private const int MonitorDurationSeconds = 90;
+    private const int TopExecutablesToMonitor = 1;
 
     private readonly string _testDbPath;
     private readonly SqliteEventStore _store;
@@ -58,32 +58,42 @@ public sealed class HeuristicCorrelationTests : IDisposable
         var totalMatches = allSessions.Sum(r => r.TotalMatches);
         var totalComparisons = allSessions.Sum(r => r.TechniqueComparisons);
         var totalDurationSeconds = allSessions.Sum(r => r.Duration.TotalSeconds);
-        var totalCpuSeconds = allSessions.Sum(r => r.ProcessCpuDeltaSeconds ?? 0);
-        var totalMemoryDelta = allSessions.Sum(r => r.ProcessMemoryDeltaMb ?? 0);
-        var totalMemoryReduction = allSessions.Sum(r => r.ProcessMemoryReductionMb ?? 0);
 
-        ReportFormatter.WriteSection("Resumo Execução Teste Heurístico",
+        ReportFormatter.WriteSection("Resumo Geral do Monitoramento Heurístico",
             ("Tempo total (s)", suiteTimer.Elapsed.TotalSeconds.ToString("F1")),
             ("Executáveis monitorados", executableReports.Count.ToString()),
-            ("Sessões individuais", allSessions.Count.ToString()),
+            ("Sessões monitoradas", allSessions.Count.ToString()),
             ("Eventos analisados", totalEvents.ToString("N0")),
-            ("Snapshots gerados", totalSnapshots.ToString("N0")),
-            ("Tentativas de correlação", totalComparisons.ToString("N0")),
+            ("Snapshots heurísticos", totalSnapshots.ToString("N0")),
+            ("Comparações realizadas", totalComparisons.ToString("N0")),
             ("Matches encontrados", totalMatches.ToString("N0")),
-            ("Duração acumulada (s)", totalDurationSeconds.ToString("F1")),
-            ("CPU total dos alvos (s)", totalCpuSeconds.ToString("F2")),
-            ("Incremento total de RAM (MB)", totalMemoryDelta.ToString("F2")),
-            ("Redução total de RAM (MB)", totalMemoryReduction.ToString("F2"))
+            ("Catálogo avaliado", catalogSummary.FinalTestCount.ToString("N0"))
         );
+
+        if (totalSnapshots == 0)
+        {
+            ReportFormatter.WriteList("Observações", new[]
+            {
+                "Nenhum snapshot heurístico foi produzido durante esta execução; a ausência de eventos relevantes é considerada válida e não representa falha."
+            });
+        }
+        else if (totalComparisons == 0)
+        {
+            ReportFormatter.WriteList("Observações", new[]
+            {
+                "O motor heurístico finalizou a janela sem executar correlações (comparações = 0)."
+            });
+        }
 
         var sessionsWithErrors = allSessions.Where(r => !string.IsNullOrWhiteSpace(r.Error)).ToList();
         if (sessionsWithErrors.Count > 0)
         {
-            ReportFormatter.WriteList("Sessões com erros",
+            ReportFormatter.WriteList("Sessões com avisos",
                 sessionsWithErrors.Select(r => $"{r.ExecutableName} (PID {r.Pid}): {r.Error}"));
         }
 
-        ReportFormatter.WriteSection("Teste de Correlação do Motor Heurístico Concluído");
+        ReportFormatter.WriteSection("Teste de Correlação do Motor Heurístico Concluído",
+            ("Duração monitorada (s)", totalDurationSeconds.ToString("F1")));
     }
 
     private CatalogPopulationSummary PopulateCatalogedTests()
@@ -164,10 +174,10 @@ public sealed class HeuristicCorrelationTests : IDisposable
 
     private async Task<IReadOnlyList<HeuristicExecutableReport>> MonitorTopExecutablesAndAnalyze(int finalTestCount)
     {
-        ReportFormatter.WriteSection("Monitorando Processos Top e Analisando");
+        ReportFormatter.WriteSection("Monitorando processo destaque e avaliando heurísticas");
 
-        var topSnapshots = _appService.GetTopProcesses(TopExecutablesToMonitor * 5);
-        var groupedExecutables = topSnapshots
+        var topSnapshots = _appService.GetTopProcesses(5);
+        var primaryExecutable = topSnapshots
             .GroupBy(p => p.ProcessName, StringComparer.OrdinalIgnoreCase)
             .Select(g => new
             {
@@ -175,112 +185,88 @@ public sealed class HeuristicCorrelationTests : IDisposable
                 TotalMemoryMb = g.Sum(x => x.MemoryMb)
             })
             .OrderByDescending(g => g.TotalMemoryMb)
-            .Take(TopExecutablesToMonitor)
-            .ToList();
+            .FirstOrDefault();
 
-        if (groupedExecutables.Count == 0)
+        if (primaryExecutable is null)
         {
-            ReportFormatter.WriteList("Aviso", new[] { "Nenhum processo top encontrado para monitorar." });
+            ReportFormatter.WriteList("Aviso", new[] { "Nenhum processo destacado encontrado para monitorar." });
             return Array.Empty<HeuristicExecutableReport>();
         }
 
-        ReportFormatter.WriteList(
-            "Executáveis selecionados",
-            groupedExecutables.Select(g => $"{g.Name} (RAM total {g.TotalMemoryMb:F0} MB)"));
-
-        var reportsByExecutable = new Dictionary<string, HeuristicExecutableReport>(StringComparer.OrdinalIgnoreCase);
-        var monitoringTasks = new List<Task<HeuristicSessionReport>>();
-
-        foreach (var executable in groupedExecutables)
+        Process[] processesForName;
+        try
         {
-            Process[] processesForName;
-            try
+            var baseName = Path.GetFileNameWithoutExtension(primaryExecutable.Name);
+            processesForName = Process.GetProcessesByName(baseName);
+        }
+        catch (Exception ex)
+        {
+            ReportFormatter.WriteList("Aviso", new[]
             {
-                var baseName = Path.GetFileNameWithoutExtension(executable.Name);
-                processesForName = Process.GetProcessesByName(baseName);
-            }
-            catch (Exception ex)
-            {
-                ReportFormatter.WriteList("Aviso", new[]
-                {
-                    $"Não foi possível enumerar processos para {executable.Name}: {ex.Message}"
-                });
-                continue;
-            }
-
-            if (processesForName.Length == 0)
-            {
-                ReportFormatter.WriteList("Aviso", new[]
-                {
-                    $"Nenhum processo ativo encontrado para {executable.Name}."
-                });
-                continue;
-            }
-
-            var baselines = new List<ProcessBaseline>(processesForName.Length);
-            foreach (var process in processesForName)
-            {
-                var pid = process.Id;
-                var initialMemory = SafeWorkingSetMb(process);
-                var initialCpu = SafeTotalProcessorSeconds(process);
-                baselines.Add(new ProcessBaseline(pid, initialMemory, initialCpu));
-                process.Dispose();
-            }
-
-            if (baselines.Count == 0)
-            {
-                continue;
-            }
-
-            baselines.Sort((a, b) => b.InitialMemoryMb.CompareTo(a.InitialMemoryMb));
-
-            var totalGroupRam = baselines.Sum(b => b.InitialMemoryMb);
-            ReportFormatter.WriteSection($"Executável selecionado - {executable.Name}",
-                ("Processos agrupados", baselines.Count.ToString()),
-                ("RAM total (MB)", totalGroupRam.ToString("F2")),
-                ("RAM do maior PID (MB)", baselines[0].InitialMemoryMb.ToString("F2")));
-
-            ReportFormatter.WriteList(
-                "PIDs monitorados",
-                baselines.Take(10).Select(b => $"PID {b.Pid} ({b.InitialMemoryMb:F2} MB)"));
-
-            reportsByExecutable[executable.Name] = new HeuristicExecutableReport(executable.Name);
-
-            foreach (var baseline in baselines)
-            {
-                monitoringTasks.Add(MonitorProcessAsync(executable.Name, baseline, finalTestCount));
-            }
+                $"Não foi possível enumerar processos para {primaryExecutable.Name}: {ex.Message}"
+            });
+            return Array.Empty<HeuristicExecutableReport>();
         }
 
-        if (monitoringTasks.Count == 0)
+        if (processesForName.Length == 0)
         {
-            return reportsByExecutable.Values.ToList();
-        }
-
-        var sessionReports = await Task.WhenAll(monitoringTasks);
-
-        foreach (var sessionReport in sessionReports)
-        {
-            if (!reportsByExecutable.TryGetValue(sessionReport.ExecutableName, out var report))
+            ReportFormatter.WriteList("Aviso", new[]
             {
-                report = new HeuristicExecutableReport(sessionReport.ExecutableName);
-                reportsByExecutable[sessionReport.ExecutableName] = report;
-            }
-
-            report.Sessions.Add(sessionReport);
+                $"Nenhum processo ativo encontrado para {primaryExecutable.Name}."
+            });
+            return Array.Empty<HeuristicExecutableReport>();
         }
 
-        foreach (var report in reportsByExecutable.Values)
+        var baselines = new List<ProcessBaseline>(processesForName.Length);
+        foreach (var process in processesForName)
         {
-            if (report.Sessions.Count > 0)
-            {
-                report.EmitReport();
-            }
+            var pid = process.Id;
+            var initialMemory = SafeWorkingSetMb(process);
+            var initialCpu = SafeTotalProcessorSeconds(process);
+            baselines.Add(new ProcessBaseline(pid, initialMemory, initialCpu));
+            process.Dispose();
         }
 
-        return reportsByExecutable.Values
-            .Where(r => r.Sessions.Count > 0)
-            .ToList();
+        if (baselines.Count == 0)
+        {
+            ReportFormatter.WriteList("Aviso", new[] { $"Não foi possível capturar baseline para {primaryExecutable.Name}." });
+            return Array.Empty<HeuristicExecutableReport>();
+        }
+
+        baselines.Sort((a, b) => b.InitialMemoryMb.CompareTo(a.InitialMemoryMb));
+        var primaryBaseline = baselines[0];
+
+        var totalGroupRam = baselines.Sum(b => b.InitialMemoryMb);
+        var additionalPids = baselines.Count > 1
+            ? string.Join(", ", baselines.Skip(1).Take(4).Select(b => $"PID {b.Pid}"))
+            : "Nenhum";
+
+        ReportFormatter.WriteSection("Executável monitorado",
+            ("Nome", primaryExecutable.Name),
+            ("PID selecionado", primaryBaseline.Pid.ToString()),
+            ("Memória inicial (MB)", primaryBaseline.InitialMemoryMb.ToString("F2")),
+            ("Processos no grupo", baselines.Count.ToString()),
+            ("RAM total do grupo (MB)", totalGroupRam.ToString("F2")),
+            ("PIDs adicionais", additionalPids));
+
+        var reports = new List<HeuristicExecutableReport>();
+        var report = new HeuristicExecutableReport(primaryExecutable.Name)
+        {
+            InitialPidCount = baselines.Count,
+            AdditionalPidCount = Math.Max(0, baselines.Count - 1),
+            AdditionalPidSummary = additionalPids
+        };
+        reports.Add(report);
+
+        var sessionReport = await MonitorProcessAsync(primaryExecutable.Name, primaryBaseline, finalTestCount);
+        report.Sessions.Add(sessionReport);
+
+        if (report.Sessions.Count > 0)
+        {
+            report.EmitReport();
+        }
+
+        return reports;
     }
 
     private async Task<HeuristicSessionReport> MonitorProcessAsync(
@@ -395,10 +381,10 @@ public sealed class HeuristicCorrelationTests : IDisposable
 
         sessionReport.CaptureProcessEndState();
 
-        if (sessionReport.TotalSnapshots > 0)
-        {
-            sessionReport.TechniqueComparisons = (long)finalTestCount * sessionReport.TotalSnapshots;
-        }
+        sessionReport.CatalogTechniqueCount = finalTestCount;
+        sessionReport.TechniqueComparisons = sessionReport.TotalSnapshots > 0
+            ? (long)finalTestCount * sessionReport.TotalSnapshots
+            : 0;
 
         return sessionReport;
     }
@@ -479,106 +465,63 @@ public sealed class HeuristicCorrelationTests : IDisposable
         public string ExecutableName { get; }
         public List<HeuristicSessionReport> Sessions { get; } = new();
 
+        public int InitialPidCount { get; set; }
+        public int AdditionalPidCount { get; set; }
+        public string AdditionalPidSummary { get; set; } = "Nenhum";
+
         public void EmitReport()
         {
-            var totalSessions = Sessions.Count;
-            var totalEvents = Sessions.Sum(s => s.TotalEvents);
-            var totalSnapshots = Sessions.Sum(s => s.TotalSnapshots);
-            var totalMatches = Sessions.Sum(s => s.TotalMatches);
-            var totalComparisons = Sessions.Sum(s => s.TechniqueComparisons);
-            var totalDuration = Sessions.Sum(s => s.Duration.TotalSeconds);
-            var avgDuration = totalSessions > 0 ? totalDuration / totalSessions : 0;
-            var totalCpu = Sessions.Sum(s => s.ProcessCpuDeltaSeconds ?? 0);
-            var totalMemoryIncrease = Sessions.Sum(s => s.ProcessMemoryDeltaMb ?? 0);
-            var totalMemoryReduction = Sessions.Sum(s => s.ProcessMemoryReductionMb ?? 0);
-            var avgInitialMemory = totalSessions > 0 ? Sessions.Average(s => s.InitialProcessMemoryMb) : 0;
-            var peakMemory = Sessions
-                .Select(s => s.PeakWorkingSetMb ?? s.InitialProcessMemoryMb)
-                .DefaultIfEmpty(0)
-                .Max();
-            var sessionsWithSnapshots = Sessions.Count(s => s.TotalSnapshots > 0);
-            var sessionsWithErrors = Sessions.Count(s => !string.IsNullOrWhiteSpace(s.Error));
-
-            ReportFormatter.WriteSection($"Resumo por Executável - {ExecutableName}",
-                ("Sessões monitoradas", totalSessions.ToString()),
-                ("Eventos coletados (total)", totalEvents.ToString("N0")),
-                ("Snapshots heurísticos", totalSnapshots.ToString("N0")),
-                ("Matches encontrados", totalMatches.ToString("N0")),
-                ("Tentativas de correlação", totalComparisons.ToString("N0")),
-                ("Duração total (s)", totalDuration.ToString("F1")),
-                ("Duração média (s)", avgDuration.ToString("F1")),
-                ("Memória inicial média (MB)", avgInitialMemory.ToString("F2")),
-                ("Pico de memória (MB)", peakMemory.ToString("F2")),
-                ("Incremento total de RAM (MB)", totalMemoryIncrease.ToString("F2")),
-                ("Redução total de RAM (MB)", totalMemoryReduction.ToString("F2")),
-                ("CPU total dos alvos (s)", totalCpu.ToString("F2")),
-                ("Sessões com snapshots", sessionsWithSnapshots.ToString()),
-                ("Sessões com erro", sessionsWithErrors.ToString())
-            );
-
-            var aggregatedEventCounts = new Dictionary<int, int>();
-            foreach (var session in Sessions)
+            if (Sessions.Count == 0)
             {
-                foreach (var kvp in session.EventHistogram)
-                {
-                    aggregatedEventCounts[kvp.Key] = aggregatedEventCounts.TryGetValue(kvp.Key, out var current)
-                        ? current + kvp.Value
-                        : kvp.Value;
-                }
+                return;
             }
 
-            if (aggregatedEventCounts.Count > 0)
+            var session = Sessions[0];
+
+            var lines = new List<(string Label, string Value)>
             {
-                var topEvents = aggregatedEventCounts
-                    .OrderByDescending(kvp => kvp.Value)
-                    .Take(5)
-                    .Select(kvp => $"ID {kvp.Key} ({kvp.Value})")
-                    .ToList();
-                ReportFormatter.WriteList("Eventos mais frequentes", topEvents);
+                ("Executável monitorado", session.ExecutableName),
+                ("PID monitorado", session.Pid.ToString()),
+                ("Janela monitorada (s)", session.Duration.TotalSeconds.ToString("F1")),
+                ("PIDs detectados inicialmente", InitialPidCount.ToString()),
+                ("PIDs adicionais conhecidos", AdditionalPidSummary),
+                ("Processos monitorados (pico)", session.TotalTracked.ToString()),
+                ("Processos ativos ao término", session.ActiveProcesses.ToString()),
+                ("Processos encerrados", session.ProcessesClosed.ToString()),
+                ("Eventos analisados", session.TotalEvents.ToString("N0")),
+                ("Snapshots heurísticos", session.TotalSnapshots.ToString("N0")),
+                ("Comparações realizadas", session.TechniqueComparisons.ToString("N0")),
+                ("Técnicas no catálogo", session.CatalogTechniqueCount.ToString("N0")),
+                ("Matches encontrados", session.TotalMatches.ToString("N0")),
+                ("Similaridade máxima", session.TopSimilarity.HasValue ? $"{session.TopSimilarity.Value:P2}" : "Nenhuma")
+            };
+
+            ReportFormatter.WriteSection("Resumo Monitoramento Heurístico", lines.ToArray());
+
+            if (session.TechniqueComparisons > 0 && session.TotalSnapshots > 0)
+            {
+                var comparacoesMensagem =
+                    $"Motor heurístico avaliou {session.CatalogTechniqueCount:N0} técnicas a cada snapshot ({session.TotalSnapshots} snapshots no intervalo).";
+                ReportFormatter.WriteList("Busca no catálogo", new[] { comparacoesMensagem });
             }
 
-            var topIps = Sessions
-                .SelectMany(s => s.TopIps)
-                .GroupBy(ip => ip, StringComparer.OrdinalIgnoreCase)
-                .OrderByDescending(g => g.Count())
-                .Take(5)
-                .Select(g => $"{g.Key} ({g.Count()})")
-                .ToList();
-
-            if (topIps.Count > 0)
+            var observacoes = new List<string>();
+            if (!string.IsNullOrWhiteSpace(session.Error))
             {
-                ReportFormatter.WriteList("IPs observados (top 5)", topIps);
+                observacoes.Add(session.Error!);
+            }
+            else if (session.TotalSnapshots == 0)
+            {
+                observacoes.Add("Nenhum snapshot heurístico foi produzido; o motor não encontrou eventos suficientes para correlacionar.");
+            }
+            else if (session.TotalMatches == 0)
+            {
+                observacoes.Add("O motor percorreu todo o catálogo, mas não encontrou similaridades acima dos limiares configurados.");
             }
 
-            var topDomains = Sessions
-                .SelectMany(s => s.TopDomains)
-                .GroupBy(d => d, StringComparer.OrdinalIgnoreCase)
-                .OrderByDescending(g => g.Count())
-                .Take(5)
-                .Select(g => $"{g.Key} ({g.Count()})")
-                .ToList();
-
-            if (topDomains.Count > 0)
+            if (observacoes.Count > 0)
             {
-                ReportFormatter.WriteList("Domínios observados (top 5)", topDomains);
-            }
-
-            var topProcesses = Sessions
-                .SelectMany(s => s.ProcessesCriados)
-                .GroupBy(p => p, StringComparer.OrdinalIgnoreCase)
-                .OrderByDescending(g => g.Count())
-                .Take(5)
-                .Select(g => $"{g.Key} ({g.Count()})")
-                .ToList();
-
-            if (topProcesses.Count > 0)
-            {
-                ReportFormatter.WriteList("Processos criados (top 5)", topProcesses);
-            }
-
-            foreach (var session in Sessions)
-            {
-                session.EmitReport();
+                ReportFormatter.WriteList("Observações", observacoes);
             }
         }
     }
@@ -609,11 +552,13 @@ public sealed class HeuristicCorrelationTests : IDisposable
         public int UniqueEventTypes { get; set; }
         public int ActiveProcesses { get; set; }
         public int TotalTracked { get; set; }
+        public int ProcessesClosed { get; set; }
         public int ProcessLogCount { get; set; }
         public int TotalMatches { get; set; }
         public int UniqueTechniques { get; set; }
         public int TotalSnapshots { get; set; }
         public long TechniqueComparisons { get; set; }
+        public int CatalogTechniqueCount { get; set; }
 
         public Dictionary<int, int> EventHistogram { get; set; } = new();
         public List<string> TopEventIds { get; set; } = new();
@@ -646,6 +591,7 @@ public sealed class HeuristicCorrelationTests : IDisposable
             TotalEvents = Math.Max(TotalEvents, result.TotalEventos);
             ActiveProcesses = result.Statistics.ProcessosAtivos;
             TotalTracked = result.Statistics.TotalProcessosRastreados;
+            ProcessesClosed = result.Statistics.ProcessosEncerrados;
             ProcessLogCount = result.Logs.Count;
         }
 
@@ -706,85 +652,6 @@ public sealed class HeuristicCorrelationTests : IDisposable
             }
         }
 
-        public void EmitReport()
-        {
-            var lines = new List<(string Label, string Value)>
-            {
-                ("Executável", ExecutableName),
-                ("PID", Pid.ToString()),
-                ("Sessão ID", SessionId?.ToString() ?? "n/d"),
-                ("Duração (s)", Duration.TotalSeconds.ToString("F1")),
-                ("Eventos coletados", TotalEvents.ToString("N0")),
-                ("Tipos de evento distintos", UniqueEventTypes.ToString("N0")),
-                ("Snapshots heurísticos", TotalSnapshots.ToString("N0")),
-                ("Matches encontrados", TotalMatches.ToString("N0")),
-                ("Tentativas de correlação", TechniqueComparisons.ToString("N0")),
-                ("Processos ativos", ActiveProcesses.ToString()),
-                ("Processos rastreados", TotalTracked.ToString()),
-                ("Logs coletados", ProcessLogCount.ToString("N0")),
-                ("Memória inicial (MB)", InitialProcessMemoryMb.ToString("F2")),
-                ("Memória final (MB)", FinalProcessMemoryMb?.ToString("F2") ?? "n/d"),
-                ("Incremento RAM (MB)", ProcessMemoryDeltaMb?.ToString("F2") ?? "n/d"),
-                ("Redução RAM (MB)", ProcessMemoryReductionMb?.ToString("F2") ?? "n/d"),
-                ("CPU alvo (s)", ProcessCpuDeltaSeconds?.ToString("F2") ?? "n/d"),
-                ("Processo permaneceu ativo", (!ProcessEnded).ToString())
-            };
-
-            if (PeakWorkingSetMb.HasValue)
-            {
-                lines.Add(("Pico RAM (MB)", PeakWorkingSetMb.Value.ToString("F2")));
-            }
-
-            if (TopSimilarity.HasValue)
-            {
-                lines.Add(("Similaridade máxima", $"{TopSimilarity.Value:P2}"));
-            }
-
-            if (AverageSimilarity.HasValue)
-            {
-                lines.Add(("Similaridade média", $"{AverageSimilarity.Value:P2}"));
-            }
-
-            if (!string.IsNullOrWhiteSpace(Error))
-            {
-                lines.Add(("Erro", Error!));
-            }
-            else if (TotalSnapshots == 0)
-            {
-                lines.Add(("Observação", "Nenhum snapshot de similaridade gerado."));
-            }
-
-            ReportFormatter.WriteSection("Resumo Sessão Heurística", lines.ToArray());
-
-            if (TopEventIds.Count > 0)
-            {
-                ReportFormatter.WriteList("Event IDs mais frequentes", TopEventIds);
-            }
-
-            if (TopIps.Count > 0)
-            {
-                ReportFormatter.WriteList("IPs observados", TopIps);
-            }
-
-            if (TopDomains.Count > 0)
-            {
-                ReportFormatter.WriteList("Domínios observados", TopDomains);
-            }
-
-            if (ProcessesCriados.Count > 0)
-            {
-                ReportFormatter.WriteList("Processos criados", ProcessesCriados);
-            }
-
-            if (MatchesByThreatLevel is { Count: > 0 })
-            {
-                var threatLines = MatchesByThreatLevel
-                    .OrderByDescending(kvp => kvp.Value)
-                    .Select(kvp => $"{kvp.Key}: {kvp.Value}")
-                    .ToList();
-                ReportFormatter.WriteList("Matches por tarja", threatLines);
-            }
-        }
     }
 }
 

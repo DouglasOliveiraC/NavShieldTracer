@@ -101,21 +101,22 @@ public sealed class QueryPerformanceTests : IDisposable
 
     [PerformanceFact]
     [Trait("Category", "Performance")]
-    public void CriticalEventCounts_Performance()
+    public void LatestSimilaritySnapshot_Performance()
     {
         var sessionId = _sessionIds.First();
 
         var sw = Stopwatch.StartNew();
-        var criticalCounts = _store.GetCriticalEventCounts(sessionId);
+        var snapshot = _store.ObterUltimoSnapshotDeSimilaridade(sessionId);
         sw.Stop();
 
         ReportFormatter.WriteSection(
-            "Contagem de Eventos Criticos",
-            ("Tipos distintos", criticalCounts.Count.ToString()),
-            ("Tempo", $"{sw.Elapsed.TotalMilliseconds:F2} ms"));
+            "Snapshot Heuristico Mais Recente",
+            ("Sessao analisada", sessionId.ToString()),
+            ("Tempo", $"{sw.Elapsed.TotalMilliseconds:F2} ms"),
+            ("Snapshot encontrado", snapshot is null ? "Nao" : "Sim"));
 
-        Assert.True(sw.ElapsedMilliseconds < 60, $"Query demorou {sw.ElapsedMilliseconds} ms (> 60 ms).");
-        Assert.True(criticalCounts.Count > 0, "Nenhum evento critico retornado.");
+        Assert.True(sw.ElapsedMilliseconds < 60, $"Consulta demorou {sw.ElapsedMilliseconds} ms (> 60 ms).");
+        Assert.Null(snapshot);
     }
 
     [PerformanceFact]

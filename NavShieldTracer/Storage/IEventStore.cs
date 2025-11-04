@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using NavShieldTracer.Modules.Models;
+using NavShieldTracer.Modules.Heuristics.Engine;
 
 namespace NavShieldTracer.Storage
 {
@@ -115,21 +116,20 @@ namespace NavShieldTracer.Storage
         bool ExcluirTesteAtomico(int testeId);
 
         /// <summary>
-        /// Obtém a contagem de eventos críticos agrupados por Event ID para uma sessão específica.
-        /// Usado para classificação automática de nível de ameaça segundo padrão do Ministério da Defesa.
+        /// Obtem o ultimo snapshot heuristico registrado para uma sessao.
         /// </summary>
-        /// <param name="sessionId">ID da sessão a ser analisada</param>
-        /// <returns>Dicionário com Event ID como chave e contagem de ocorrências como valor</returns>
-        Dictionary<int, int> GetCriticalEventCounts(int sessionId);
+        /// <param name="sessionId">ID da sessao.</param>
+        /// <returns>Snapshot heuristico mais recente ou null se inexistente.</returns>
+        SessionSnapshot? ObterUltimoSnapshotDeSimilaridade(int sessionId);
 
         /// <summary>
-        /// Lista todas as sessões de monitoramento (ativas e encerradas)
+        /// Lista todas as sessoes de monitoramento (ativas e encerradas)
         /// </summary>
-        /// <returns>Lista de sessões ordenadas por data de início (mais recentes primeiro)</returns>
+        /// <returns>Lista de sessoes ordenadas por data de inicio (mais recentes primeiro)</returns>
         List<SessaoMonitoramento> ListarSessoes();
 
         /// <summary>
-        /// Obtém estatísticas básicas de uma sessão para exibição ao analista
+        /// Obt�m estat�sticas b�sicas de uma sessao para exibi�ao ao analista
         /// </summary>
         /// <param name="sessionId">ID da sessão</param>
         /// <returns>Estatísticas básicas incluindo distribuição de eventos, IPs, domínios e processos</returns>

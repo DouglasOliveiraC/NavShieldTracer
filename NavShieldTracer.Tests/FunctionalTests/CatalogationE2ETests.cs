@@ -137,18 +137,20 @@ public sealed class CatalogationE2ETests : IDisposable
     }
 
     [Fact]
-    public void CriticalEventAnalysis()
+    public void HeuristicSnapshotAvailability()
     {
         var sessionId = _seeder.CriarSessaoComEventos("critical_test.exe", 500, 7000);
-        var criticalCounts = _store.GetCriticalEventCounts(sessionId);
+        var snapshot = _store.ObterUltimoSnapshotDeSimilaridade(sessionId);
+        var eventCount = _store.ContarEventosSessao(sessionId);
 
         ReportFormatter.WriteSection(
-            "E2E Analise Critica",
+            "E2E Snapshot Heuristico",
             ("Sessao", sessionId.ToString()),
-            ("Tipos encontrados", criticalCounts.Count.ToString()),
-            ("Eventos totais", criticalCounts.Sum(kv => kv.Value).ToString("N0")));
+            ("Snapshot presente", snapshot is null ? "Nao" : "Sim"),
+            ("Eventos totais", eventCount.ToString("N0")));
 
-        Assert.True(criticalCounts.Count > 0, "Nenhum evento critico encontrado.");
+        Assert.Null(snapshot);
+        Assert.Equal(500, eventCount);
     }
 
     [Fact]

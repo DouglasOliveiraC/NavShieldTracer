@@ -1,4 +1,7 @@
 @using Spectre.Console
+@using System.Linq
+@using NavShieldTracer.Modules.Heuristics.Engine
+@using HeuristicThreatSeverityTarja = NavShieldTracer.Modules.Heuristics.Normalization.ThreatSeverityTarja
 @inject NavShieldAppService AppService
 
 <Panel Title="Monitoramento em Tempo Real" BorderColor="@Color.Cyan1">
@@ -40,8 +43,10 @@
 
     @if (ActiveSession is not null)
     {
-        var threatLevel = GetThreatLevel();
+        var heuristicSnapshot = ActiveSession.HeuristicSnapshot;
+        var threatLevel = heuristicSnapshot?.SessionThreatLevel ?? HeuristicThreatSeverityTarja.Verde;
         var threatColor = ResolveThreatColor(threatLevel);
+        var highestMatch = heuristicSnapshot?.HighestMatch;
         var duration = CurrentTime - ActiveSession.StartedAt;
         var logsDisponiveis = ActiveSession.Logs.TakeLast(MaxLogs).ToList();
 
@@ -112,6 +117,88 @@
             </Columns>
         }
 
+        <Newline />
+        <Panel Title="Analise Heuristica" BorderColor='@threatColor'>
+            @if (heuristicSnapshot is null)
+            {
+                <Markup Content="Monitor heuristico aguardando eventos suficientes para avaliar esta sessao."
+                        Foreground="@Color.Grey70" />
+            }
+            else
+            {
+                <Grid Columns="2">
+                    <Markup Content="Atualizado:" />
+                    <Markup Content='@heuristicSnapshot.SnapshotAt.ToString("HH\\:mm\\:ss")' Foreground="@Color.Silver" />
+                    <Markup Content="Eventos analisados:" />
+                    <Markup Content='@heuristicSnapshot.EventCountAtSnapshot.ToString()' Foreground="@Color.Cyan1" />
+                    <Markup Content="Processos ativos:" />
+                    <Markup Content='@heuristicSnapshot.ActiveProcessesCount.ToString()' Foreground="@Color.Yellow" />
+                    <Markup Content="Tarja heuristica:" />
+                    <Markup Content='@ResolveThreatText(heuristicSnapshot.SessionThreatLevel)'
+                            Foreground='@ResolveThreatColor(heuristicSnapshot.SessionThreatLevel)'
+                            Decoration="@Decoration.Bold" />
+                    @if (highestMatch is not null)
+                    {
+                        var matchColor = ResolveThreatColor(highestMatch.ThreatLevel);
+                        <Markup Content="Tecnica dominante:" />
+                        <Markup Content='@($"{highestMatch.TechniqueId} - {Spectre.Console.Markup.Escape(highestMatch.TechniqueName)}")'
+                                Foreground='@matchColor' />
+                        <Markup Content="Similaridade:" />
+                        <Markup Content='@highestMatch.Similarity.ToString("P1")' Foreground="@Color.Cyan1" />
+                        <Markup Content="Confianca:" />
+                        <Markup Content='@highestMatch.Confidence.ToUpperInvariant()' Foreground="@Color.Cyan1" />
+                    }
+                    else
+                    {
+                        <Markup Content="Tecnica dominante:" />
+                        <Markup Content="Nenhuma correlacao ativa" Foreground="@Color.Grey70" />
+                    }
+                </Grid>
+
+                @if (heuristicSnapshot.Matches.Any())
+                {
+                    var topMatches = heuristicSnapshot.Matches
+                        .OrderByDescending(m => m.Similarity)
+                        .Take(3)
+                        .ToList();
+
+                    <Newline />
+                    <SpectreTable Border="@TableBorder.Rounded" BorderColor="@Color.Grey" ShowHeaders="true">
+                        <SpectreTHead>
+                            <SpectreTR>
+                                <SpectreTH><Markup Content="Tecnica" /></SpectreTH>
+                                <SpectreTH><Markup Content="Tarja" /></SpectreTH>
+                                <SpectreTH><Markup Content="Similaridade" /></SpectreTH>
+                                <SpectreTH><Markup Content="Confianca" /></SpectreTH>
+                            </SpectreTR>
+                        </SpectreTHead>
+                        <SpectreTBody>
+                            @foreach (var match in topMatches)
+                            {
+                                var matchColor = ResolveThreatColor(match.ThreatLevel);
+                                <SpectreTR>
+                                    <SpectreTD>
+                                        <Markup Content='@($"{match.TechniqueId} - {Spectre.Console.Markup.Escape(match.TechniqueName)}")'
+                                                Foreground='@matchColor' />
+                                    </SpectreTD>
+                                    <SpectreTD>
+                                        <Markup Content='@ResolveThreatText(match.ThreatLevel)'
+                                                Foreground='@matchColor' />
+                                    </SpectreTD>
+                                    <SpectreTD>
+                                        <Markup Content='@match.Similarity.ToString("P1")' Foreground="@Color.Cyan1" />
+                                    </SpectreTD>
+                                    <SpectreTD>
+                                        <Markup Content='@match.Confidence.ToUpperInvariant()' Foreground="@Color.Cyan1" />
+                                    </SpectreTD>
+                                </SpectreTR>
+                            }
+                        </SpectreTBody>
+                    </SpectreTable>
+                }
+            }
+        </Panel>
+
         @if (ActiveSession.Statistics.ProcessosAtivosDetalhados.Count > 0)
         {
             var totalProcessos = ActiveSession.Statistics.ProcessosAtivosDetalhados.Count;
@@ -178,7 +265,6 @@
     [Parameter] public bool UseCompactLayout { get; set; }
     [Parameter] public SysmonStatus SysmonStatus { get; set; } = null!;
     [Parameter] public MonitoringSessionSnapshot? ActiveSession { get; set; }
-    [Parameter] public IReadOnlyDictionary<int, int> CriticalEventCounts { get; set; } = new Dictionary<int, int>();
     [Parameter] public DateTime CurrentTime { get; set; }
     [Parameter] public EventCallback OnSessionStateChanged { get; set; }
 
@@ -218,91 +304,21 @@
         }
     }
 
-    private ThreatLevel GetThreatLevel()
+    private static string ResolveThreatText(HeuristicThreatSeverityTarja level) => level switch
     {
-        if (ActiveSession is null || CriticalEventCounts.Count == 0)
-        {
-            return ThreatLevel.Baixo;
-        }
-
-        var injectionEvents = CriticalEventCounts.GetValueOrDefault(8);
-        var tamperingEvents = CriticalEventCounts.GetValueOrDefault(25);
-        var fileDeleteEvents = CriticalEventCounts.GetValueOrDefault(23);
-        var networkEvents = CriticalEventCounts.GetValueOrDefault(3);
-        var processAccessEvents = CriticalEventCounts.GetValueOrDefault(10);
-        var timestompingEvents = CriticalEventCounts.GetValueOrDefault(2);
-        var registryEvents = CriticalEventCounts.GetValueOrDefault(13);
-        var pipeEvents = CriticalEventCounts.GetValueOrDefault(17);
-        var dnsEvents = CriticalEventCounts.GetValueOrDefault(22);
-        var processCreateEvents = CriticalEventCounts.GetValueOrDefault(1);
-
-        if (injectionEvents > 0 || tamperingEvents > 0)
-        {
-            return ThreatLevel.Severo;
-        }
-
-        if (fileDeleteEvents > 20)
-        {
-            return ThreatLevel.Severo;
-        }
-
-        if (networkEvents > 50 || processAccessEvents > 10)
-        {
-            return ThreatLevel.Alto;
-        }
-
-        if (fileDeleteEvents is > 5 and <= 20)
-        {
-            return ThreatLevel.Alto;
-        }
-
-        if (timestompingEvents > 0 || (registryEvents > 10 && pipeEvents > 0))
-        {
-            return ThreatLevel.Medio;
-        }
-
-        if (processAccessEvents is > 0 and <= 10)
-        {
-            return ThreatLevel.Medio;
-        }
-
-        if (dnsEvents > 20 || processCreateEvents > 15)
-        {
-            return ThreatLevel.Moderado;
-        }
-
-        if (registryEvents > 5 || networkEvents > 10)
-        {
-            return ThreatLevel.Moderado;
-        }
-
-        return ThreatLevel.Baixo;
-    }
-
-    private static string ResolveThreatText(ThreatLevel level) => level switch
-    {
-        ThreatLevel.Severo => "SEVERO",
-        ThreatLevel.Alto => "ALTO",
-        ThreatLevel.Medio => "MEDIO",
-        ThreatLevel.Moderado => "MODERADO",
-        _ => "BAIXO"
+        HeuristicThreatSeverityTarja.Verde => "VERDE",
+        HeuristicThreatSeverityTarja.Amarelo => "AMARELA",
+        HeuristicThreatSeverityTarja.Laranja => "LARANJA",
+        HeuristicThreatSeverityTarja.Vermelho => "VERMELHA",
+        _ => "DESCONHECIDA"
     };
 
-    private static Color ResolveThreatColor(ThreatLevel level) => level switch
+    private static Color ResolveThreatColor(HeuristicThreatSeverityTarja level) => level switch
     {
-        ThreatLevel.Severo => Color.Red,
-        ThreatLevel.Alto => Color.Orange3,
-        ThreatLevel.Medio => Color.Yellow,
-        ThreatLevel.Moderado => Color.Blue,
-        _ => Color.Green
+        HeuristicThreatSeverityTarja.Verde => Color.Green,
+        HeuristicThreatSeverityTarja.Amarelo => Color.Yellow,
+        HeuristicThreatSeverityTarja.Laranja => Color.Orange3,
+        HeuristicThreatSeverityTarja.Vermelho => Color.Red,
+        _ => Color.Grey
     };
-
-    private enum ThreatLevel
-    {
-        Baixo,
-        Moderado,
-        Medio,
-        Alto,
-        Severo
-    }
 }

@@ -17,7 +17,7 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
     /// <param name="Confidence">Nível de confiança (high/medium/low).</param>
     /// <param name="MatchedEventIds">IDs dos eventos que formaram o match.</param>
     /// <param name="Dimensions">Scores detalhados por dimensão.</param>
-    internal record SimilarityMatch(
+    public record SimilarityMatch(
         int TestId,
         string TechniqueId,
         string TechniqueName,
@@ -36,7 +36,7 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
     /// <param name="CriticalEventsScore">D2: Score de eventos críticos presentes (0.0-1.0).</param>
     /// <param name="TemporalScore">D3: Score de padrão temporal (0.0-1.0).</param>
     /// <param name="ContextScore">D4: Score de contexto operacional (0.0-1.0).</param>
-    internal record SimilarityDimensions(
+    public record SimilarityDimensions(
         double HistogramSimilarity,
         double CriticalEventsScore,
         double TemporalScore,
@@ -59,7 +59,7 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
     /// <param name="SessionThreatLevel">Nível de ameaça da sessão neste momento.</param>
     /// <param name="EventCountAtSnapshot">Quantidade de eventos capturados até este momento.</param>
     /// <param name="ActiveProcessesCount">Quantidade de processos ativos.</param>
-    internal record SessionSnapshot(
+    public record SessionSnapshot(
         int SessionId,
         DateTime SnapshotAt,
         IReadOnlyList<SimilarityMatch> Matches,
@@ -93,7 +93,7 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
     /// <param name="TriggerTechniqueId">Técnica que causou a mudança.</param>
     /// <param name="TriggerSimilarity">Similaridade da técnica que causou a mudança.</param>
     /// <param name="SnapshotId">ID do snapshot relacionado.</param>
-    internal record ThreatAlert(
+    public record ThreatAlert(
         int SessionId,
         DateTime Timestamp,
         ThreatSeverityTarja? PreviousLevel,
@@ -107,7 +107,7 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
     /// <summary>
     /// Configuração do motor de análise.
     /// </summary>
-    internal class AnalysisConfiguration
+    public class AnalysisConfiguration
     {
         /// <summary>
         /// Threshold mínimo de similaridade para considerar um match (padrão: 0.5).
