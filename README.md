@@ -5,214 +5,134 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?style=flat-square&logo=windows)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-**NavShieldTracer** é uma ferramenta de monitoramento de atividade de processos para Windows, projetada para análise de segurança defensiva e investigação forense do comportamento de software.
+NavShieldTracer e uma ferramenta de monitoramento de processos para Windows que registra eventos do Sysmon em uma base SQLite para apoiar investigacao forense e operacoes de defesa. A versao 1.0 consolidou todas as entregas planejadas, incluindo coleta confiavel, persistencia estruturada e suite de testes. O modulo de analise comportamental com tecnicas de IA permanece planejado para a proxima iteracao.
 
-> **🎯 Versão Atual: v1.0.0.1**  
-> Esta é a primeira versão estável focada em **captura e persistência estruturada** de eventos do sistema. O core de monitoramento está 100% funcional com base de dados SQLite, filtragem inteligente e arquitetura preparada para análise comportamental.
+## Visao geral
 
-## 📋 Visão Geral
+- Captura eventos do Sysmon (IDs 1-26) com rastreamento de arvore de processos e enriquecimento de conexoes de rede e DNS.
+- Persiste os eventos em `Logs/navshieldtracer.sqlite`, mantendo dados normalizados e o JSON bruto para auditoria.
+- Inclui shell dedicado para automatizar execucoes do Atomic Red Team e validar deteccoes.
+- Disponibiliza diagnostico inicial que verifica permissao administrativa, instalacao do Sysmon e estado da base.
 
-NavShieldTracer utiliza o **Sysmon (System Monitor)** para capturar eventos do sistema e armazená-los em uma **base de dados SQLite estruturada**, fornecendo visibilidade completa sobre:
+## Estado do projeto
 
-- 🔄 Criação e encerramento de processos
-- 🌐 Conexões de rede e consultas DNS
-- 📁 Operações de arquivo (criação, modificação, exclusão)
-- 🔐 Acessos ao registro do Windows
-- 🧵 Criação de threads remotas
-- 📚 Carregamento de DLLs e drivers
-- 🔗 Pipes nomeados e streams NTFS
+- Entregas concluidas: captura de eventos, normalizacao e armazenamento, automacao de testes com Atomic Red Team, testes de unidade/integracao/estresse e documentacao tecnica.
+- Entrega futura: modulo heuristico com analise de IA e painel web permanecem fora da versao 1.0 e serao tratados em releases posteriores.
 
-## 🚀 Estado Atual - v1.0.0.1
+## Componentes principais
 
-### ✅ **Funcionalidades Implementadas**
+- `NavShieldTracer`: servico de monitoramento que consome eventos do Sysmon e grava no SQLite.
+- `TesteSoftware`: shell interativo que encapsula Invoke-AtomicRedTeam para facilitar testes adversariais.
+- Pastas `NavShieldTracer.Tests*`: suites de testes automatizados (funcionais, performance, confiabilidade e relatorios).
 
-**Core de Monitoramento:**
-- ✅ **Captura de 18+ tipos de eventos** do Sysmon (Event IDs 1-26)
-- ✅ **Base de dados SQLite** com schema otimizado e índices estratégicos
-- ✅ **Rastreamento de árvore de processos** pai-filho com filtragem inteligente
-- ✅ **Persistência estruturada** com campos normalizados e JSON raw
-- ✅ **Diagnóstico automático** da configuração do Sysmon
-- ✅ **Arquitetura modular** preparada para motor heurístico e exibição de dashboard
+## Requisitos de sistema
 
-**Eventos Validados:**
-- ✅ **Network Connections** (Event ID 3) - Conexões TCP/UDP com hostnames
-- ✅ **DNS Queries** (Event ID 22) - Consultas de resolução de nomes  
-- ✅ **Process Creation** (Event ID 1) - Criação de processos com linha de comando
-- ✅ **Process Termination** (Event ID 5) - Encerramento de processos
+- Windows 10 build ou superior.
+- .NET 9 SDK para compilar e executar.
+- Permissao administrativa para instalar Sysmon e capturar eventos.
+- Sysmon instalado e configurado com o arquivo `sysmon-config-completa.xml`.
+- PowerShell 5.1 ou 7.x com politica de execucao capaz de importar modulos locais.
+- SQLite ja incluso via Microsoft.Data.Sqlite (nao requer instalacao externa).
 
-**Infraestrutura:**
-- ✅ **TesteSoftware** - Suite modular integrada com Red Canary Atomic Red Team
-- ✅ **SQLite WAL Mode** - Performance otimizada com transações seguras
-- ✅ **Script de automação** - Execução facilitada de testes
-- ✅ **Documentação completa** - Guias técnicos, apresentação TCC e arquitetura
+## Preparacao do ambiente
 
-### 🔄 **Em Progresso** 
-- **Eventos adicionais** dependem de configuração Sysmon específica:
-  - File Operations (Event IDs 2, 11, 23)
-  - Registry Access (Event IDs 12-14)  
-  - Advanced Process Events (Event IDs 6-10)
+1. **Instalar Sysmon**
+   ```powershell
+   sysmon64.exe -accepteula -i sysmon-config-completa.xml
+   ```
+   Caso ja tenha Sysmon instalado, atualize a configuracao com `sysmon64.exe -c sysmon-config-completa.xml`.
 
-### 🎯 **Próximas Versões**
-- **Módulo 2 - Motor Heurístico**: Engine de análise comportamental e detecção de anomalias
-- **Módulo 3 - Web Dashboard**: Interface gráfica moderna para visualização em tempo real
-- **Módulo 4 - Integração Avançada**: Conectores SIEM, APIs REST e threat intelligence
+2. **Instalar o Atomic Red Team e o modulo Invoke-AtomicRedTeam**
+   - Crie a estrutura base:
+     ```powershell
+     New-Item -ItemType Directory -Force -Path C:\AtomicRedTeam | Out-Null
+     git clone https://github.com/redcanaryco/atomic-red-team.git C:\AtomicRedTeam\atomic-red-team
+     git clone https://github.com/redcanaryco/invoke-atomicredteam.git C:\AtomicRedTeam\invoke-atomicredteam
+     ```
+   - Alternativa PowerShell Gallery:
+     ```powershell
+     Install-Module -Name InvokeAtomicRedTeam -Scope CurrentUser
+     ```
+   O `TesteSoftware` procura automaticamente por `Invoke-AtomicRedTeam.psd1` nas pastas acima ou em qualquer diretorio listado no `PSModulePath`.
 
-## 🛠️ Requisitos do Sistema
+3. **Instalar o .NET 9 SDK**
+   - Download em https://dotnet.microsoft.com/download/dotnet/9.0.
+   - Confirme com `dotnet --version`.
 
-- **Windows 10.0.17763.0 ou posterior**
-- **.NET 9 Runtime**
-- **Privilégios de Administrador** (obrigatório)
-- **Sysmon instalado e configurado**
-- **SQLite** (incluído via Microsoft.Data.Sqlite)
+4. **Clonar o NavShieldTracer**
+   ```powershell
+   git clone https://github.com/DouglasOliveiraC/NavShieldTracer.git
+   ```
 
-## 🚀 Instalação Rápida
+## Instalacao e compilacao
 
-### 1. Instalar Sysmon
-```bash
-# Baixe o Sysmon do Microsoft Sysinternals
-# Execute como Administrador:
-sysmon -accepteula -i
-```
-
-### 2. Configurar Sysmon (Recomendado)
-```bash
-# Para análise completa, use nossa configuração otimizada:
-sysmon -c sysmon-config-completa.xml
-```
-
-### 3. Compilar o Projeto
-```bash
-git clone https://github.com/seu-usuario/NavShieldTracer.git
+```powershell
 cd NavShieldTracer
-git checkout v1.0.0-Foundation  # Versão estável atual
-dotnet build NavShieldTracer.sln
+dotnet restore NavShieldTracer.sln
+dotnet build NavShieldTracer.sln -c Release
 ```
 
-## 📖 Como Usar
+A build gera os binarios em `NavShieldTracer\bin\Release\net9.0`.
 
-### Execução Manual
-```bash
-# Execute como ADMINISTRADOR
+## Execucao
+
+### Monitoramento interativo
+
+```powershell
 dotnet run --project NavShieldTracer/NavShieldTracer.csproj
-
-# Quando solicitado, digite o nome do executável (ex: "notepad")
-# Pressione Enter para finalizar o monitoramento
 ```
 
-> ℹ️ **Diagnóstico automático**: na inicialização o NavShieldTracer verifica privilégios elevados,
-> o serviço/canal do Sysmon e sugere correções antes de continuar. Certifique-se de seguir as recomendações exibidas no console.
+1. Execute o comando em um prompt elevado (Run as Administrator).
+2. Informe o nome do executavel a ser acompanhado quando solicitado (exemplo `powershell.exe` ou `notepad.exe`).
+3. Reproduza o comportamento que deseja observar.
+4. Pressione Enter para encerrar a sessao; os eventos ficam registrados no banco SQLite e nos logs em `Logs\`.
 
-### Teste Automatizado
-```bash
-# Execute o script de teste automatizado
-executar_teste.bat
+### Shell de testes com Atomic Red Team
 
-# Ou use o script PowerShell
-.\Executar-TesteAtomico.ps1
-
-# Novo: modo PowerShell externo (Monitorar powershell.exe)
-# Dentro do TesteSoftware, escolha a opcao 3 e responda "S" quando solicitado
-# para abrir um novo processo PowerShell dedicado ao Invoke-AtomicTest.
-# Assim o NavShieldTracer pode ser configurado para monitorar powershell.exe,
-# seguindo o manual do Red Team para testes atomicos.
+```powershell
+dotnet run --project TesteSoftware/TesteSoftware.csproj
 ```
 
-## 📊 Estrutura de Dados
+- O shell carrega o modulo Invoke-AtomicRedTeam detectado no ambiente.
+- Utilize comandos padrao como `Get-AtomicTechnique`, `Invoke-AtomicTest T1055 -TestNumbers 1` e `Update-AtomicRedTeam`.
+- Para monitorar uma execucao atomica, mantenha o NavShieldTracer acompanhando `powershell.exe` ou o processo alvo e acione o teste a partir do shell.
 
-### Base de Dados SQLite
-Os eventos são armazenados em `Logs/navshieldtracer.sqlite` com:
+## Estrutura de saida
 
-```sql
--- Tabela de Sessões
-CREATE TABLE sessions (
-    id INTEGER PRIMARY KEY,
-    started_at TEXT,
-    target_process TEXT,
-    root_pid INTEGER,
-    host TEXT,
-    notes TEXT
-);
+- **Banco de dados**: `Logs/navshieldtracer.sqlite` com tabelas `sessions` e `events`.
+- **Logs auxiliares**: arquivos `*.log` em `Logs/` com diagnosticos e mensagens de execucao.
+- **Relatorios de testes**: pastas `NavShieldTracer.TestsReports` e `NavShieldTracer.TestsResourceMonitoringTests` armazenam resultados e metricas.
 
--- Tabela de Eventos (schema normalizado)
-CREATE TABLE events (
-    id INTEGER PRIMARY KEY,
-    session_id INTEGER,
-    event_id INTEGER,
-    process_id INTEGER,
-    image TEXT,
-    command_line TEXT,
-    src_ip TEXT, dst_ip TEXT,
-    dns_query TEXT,
-    target_filename TEXT,
-    raw_json TEXT  -- JSON completo para troubleshooting
-);
-```
+## Suite de testes
 
-### Consultas Úteis
-```sql
--- Top 10 processos por eventos
-SELECT image, COUNT(*) as eventos 
-FROM events GROUP BY image ORDER BY eventos DESC LIMIT 10;
+1. **Testes padrao**
+   ```powershell
+   dotnet test NavShieldTracer.sln
+   ```
 
--- Conexões de rede por sessão
-SELECT dst_ip, dst_port, COUNT(*) as conexoes
-FROM events WHERE event_id = 3 GROUP BY dst_ip, dst_port;
-```
+2. **Testes de performance**
+   - Habilite com a variavel de ambiente `RUN_PERFORMANCE_TESTS=1`.
+     ```powershell
+     # Apenas para a sessao atual
+     $env:RUN_PERFORMANCE_TESTS = "1"
 
-## 🧪 Software de Teste
+     # Persistente para o usuario
+     setx RUN_PERFORMANCE_TESTS 1
+     ```
+   - Execute apenas a categoria de performance, se desejar:
+     ```powershell
+     dotnet test NavShieldTracer.sln --filter Category=Performance
+     ```
+   - Para desativar, defina `RUN_PERFORMANCE_TESTS=0` ou remova a variavel.
 
-O projeto inclui um **TesteSoftware** modular que integra com **Red Canary Atomic Red Team** para simulação de comportamentos adversariais:
+3. **Dependencias dos testes**
+   - Sysmon deve estar em execucao.
+   - Os caminhos configurados em `appsettings.Test*.json` apontam para o banco em `Logs/`.
 
-### **Características do TesteSoftware**
-- **🔄 Execução Modular**: Seleção individual ou sequencial de testes disponíveis
-- **🎯 Integração Red Canary**: Utiliza testes padronizados da comunidade de segurança
-- **📊 Validação Comportamental**: Simula TTPs (Tactics, Techniques, Procedures) reais
-- **⚙️ Configurável**: Permite ajuste de parâmetros e cenários de teste
+## Roadmap pos-versao 1.0
 
-### **Modo de Operação**
-1. **Detecção Automática**: Identifica testes Red Canary instalados no sistema
-2. **Seleção Interativa**: Interface para escolha de testes específicos ou execução completa
-3. **Execução Controlada**: Ambiente isolado com logging detalhado
-4. **Validação de Captura**: Verifica se o NavShieldTracer detectou corretamente os eventos
+- Motor heuristico com correlacao de eventos e pontuacao de risco (IA/ML).
 
-### **Testes Suportados** (em desenvolvimento)
+## Licenca
 
-```
-
-**📝 Nota**: O TesteSoftware está em **desenvolvimento ativo** e será aperfeiçoado continuamente com novos testes e funcionalidades de integração com Red Canary Atomic Red Team.
-
-
-### Arquitetura do Sistema
-O NavShieldTracer possui arquitetura modular em camadas:
-
-**Camada de Captura:**
-- SysmonEventMonitor - Captura eventos em tempo real
-- ProcessActivityTracker - Filtragem inteligente por árvore de processos
-- SqliteEventStore - Persistência estruturada
-
-**Camada de Análise (Futuro):**
-- Motor Heurístico - Análise comportamental
-- Detecção de Anomalias - Risk assessment
-- Alertas em Tempo Real - Threat intelligence
-
-**Camada de Apresentação (Futuro):**
-- Web Dashboard - Interface gráfica moderna
-- Timeline Interativa - Visualização temporal
-- Relatórios Automatizados - Export capabilities
-
-## 📚 Documentação
-
-- [`APRESENTACAO_TCC.md`](APRESENTACAO_TCC.md) - Apresentação completa do projeto
-- [`APRESENTACAO_TCC.tex`](APRESENTACAO_TCC.tex) - Versão LaTeX para apresentação
-
-## 🛡️ Uso Responsável
-
-**IMPORTANTE**: Esta ferramenta é projetada exclusivamente para:
-- ✅ Análise de segurança defensiva
-- ✅ Investigação forense
-- ✅ Análise de malware em sandbox
-- ✅ Auditoria de atividade de software
-
----
-
-**⚠️ Aviso**: Execute sempre como Administrador e em ambiente controlado. A base de dados SQLite cresce conforme a atividade do sistema monitorado.
+Distribuido sob a licenca [MIT](LICENSE).

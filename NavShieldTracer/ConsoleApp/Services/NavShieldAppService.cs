@@ -283,6 +283,28 @@ public sealed class NavShieldAppService : IDisposable
     }
 
     /// <summary>
+    /// Retorna a quantidade total de alertas registrados.
+    /// </summary>
+    public int ContarAlertas() => _store.ContarAlertas();
+
+    /// <summary>
+    /// Lista o hist�rico de alertas com suporte a pagina�ao.
+    /// </summary>
+    /// <param name="offset">Quantidade de registros a ignorar.</param>
+    /// <param name="limit">Quantidade m�xima de registros.</param>
+    /// <returns>Lista de alertas ordenados por data (mais recentes primeiro).</returns>
+    public IReadOnlyList<ThreatAlert> ListarAlertas(int offset, int limit)
+    {
+        if (limit <= 0)
+        {
+            return Array.Empty<ThreatAlert>();
+        }
+
+        var safeOffset = offset < 0 ? 0 : offset;
+        return _store.ListarAlertas(safeOffset, limit);
+    }
+
+    /// <summary>
     /// Obtém o resumo detalhado de um teste atômico específico.
     /// </summary>
     /// <param name="testeId">ID do teste a ser consultado.</param>

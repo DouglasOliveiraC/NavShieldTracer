@@ -134,5 +134,18 @@ namespace NavShieldTracer.Storage
         /// <param name="sessionId">ID da sessão</param>
         /// <returns>Estatísticas básicas incluindo distribuição de eventos, IPs, domínios e processos</returns>
         SessionStats ObterEstatisticasSessao(int sessionId);
+
+        /// <summary>
+        /// Conta quantos alertas foram registrados.
+        /// </summary>
+        int ContarAlertas();
+
+        /// <summary>
+        /// Lista alertas com paginação.
+        /// </summary>
+        /// <param name="offset">Quantidade de registros a pular.</param>
+        /// <param name="limit">Quantidade máxima de registros retornados.</param>
+        /// <returns>Lista dos alertas ordenados por data (mais recentes primeiro).</returns>
+        IReadOnlyList<ThreatAlert> ListarAlertas(int offset, int limit);
     }
 }

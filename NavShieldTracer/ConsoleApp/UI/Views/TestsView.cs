@@ -1,10 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using NavShieldTracer.Modules.Heuristics.Engine;
 using NavShieldTracer.Modules.Models;
 using Spectre.Console;
 using Spectre.Console.Rendering;
+using NormalizationThreatSeverityTarja = NavShieldTracer.Modules.Heuristics.Normalization.ThreatSeverityTarja;
 
 namespace NavShieldTracer.ConsoleApp.UI.Views;
 
@@ -22,11 +25,21 @@ public sealed class TestsView : IConsoleView
     private SessaoMonitoramento? _selectedSession;
     private SessionStats? _selectedSessionStats;
     private ViewMode _viewMode = ViewMode.Testes;
+    private const int TestsPageSize = 10;
+    private const int SessionsPageSize = 15;
+    private const int AlertsPageSize = 20;
+    private int _testsPageIndex;
+    private int _testsTotalPages;
+    private int _sessionsPageIndex;
+    private int _sessionsTotalPages;
+    private int _alertsPageIndex;
+    private int _alertsTotalPages;
 
     private enum ViewMode
     {
         Testes,
-        Sessoes
+        Sessoes,
+        Alertas
     }
 
     /// <summary>
@@ -46,20 +59,31 @@ public sealed class TestsView : IConsoleView
     {
         var grid = new Grid().AddColumn();
 
-        // Tabs para alternar entre Testes e Sessões
-        var tabs = _viewMode == ViewMode.Testes
-            ? "[dodgerblue1 bold][[T]] Testes[/]  [grey][[S]] Sessoes[/]"
-            : "[grey][[T]] Testes[/]  [dodgerblue1 bold][[S]] Sessoes[/]";
-        grid.AddRow(tabs);
+        // Tabs para alternar entre Testes, Sessoes e Alertas
+        var testsTab = _viewMode == ViewMode.Testes
+            ? "[dodgerblue1 bold][[T]] Testes[/]"
+            : "[grey][[T]] Testes[/]";
+        var sessionsTab = _viewMode == ViewMode.Sessoes
+            ? "[dodgerblue1 bold][[S]] Sessoes[/]"
+            : "[grey][[S]] Sessoes[/]";
+        var alertsTab = _viewMode == ViewMode.Alertas
+            ? "[dodgerblue1 bold][[A]] Alertas[/]"
+            : "[grey][[A]] Alertas[/]";
+        grid.AddRow($"{testsTab}  {sessionsTab}  {alertsTab}");
         grid.AddRow("");
 
-        if (_viewMode == ViewMode.Testes)
+        switch (_viewMode)
         {
-            BuildTestesContent(grid);
-        }
-        else
-        {
-            BuildSessoesContent(grid);
+            case ViewMode.Testes:
+                BuildTestesContent(grid);
+                break;
+            case ViewMode.Sessoes:
+                BuildSessoesContent(grid);
+                break;
+            case ViewMode.Alertas:
+            default:
+                BuildAlertasContent(grid);
+                break;
         }
 
         return grid;
@@ -69,61 +93,117 @@ public sealed class TestsView : IConsoleView
     {
         var testes = _context.AppService.ListarTestes();
 
+        var totalTestes = testes.Count;
+        var maxPageIndex = totalTestes <= 0 ? 0 : (int)Math.Ceiling(totalTestes / (double)TestsPageSize) - 1;
+        if (maxPageIndex < 0)
+        {
+            maxPageIndex = 0;
+        }
+
+        int pageIndex;
+        lock (_context.StateLock)
+        {
+            if (_testsPageIndex > maxPageIndex)
+            {
+                _testsPageIndex = maxPageIndex;
+            }
+            else if (_testsPageIndex < 0)
+            {
+                _testsPageIndex = 0;
+            }
+
+            _testsTotalPages = maxPageIndex;
+            pageIndex = _testsPageIndex;
+        }
+
+        var totalPaginas = Math.Max(1, maxPageIndex + 1);
+        var paginaAtual = totalTestes == 0 ? 0 : pageIndex + 1;
+
         grid.AddRow("[blue bold]Testes Catalogados[/]");
         grid.AddRow("");
-        grid.AddRow($"[grey]Total:[/] [cyan1]{testes.Count}[/]");
+        grid.AddRow($"[grey]Total:[/] [cyan1]{totalTestes}[/]  [grey]Pagina:[/] [cyan1]{paginaAtual}/{totalPaginas}[/]");
 
         var idDisplay = $"[cyan1]{Markup.Escape(_testsIdInput)}[/]";
         grid.AddRow($"[grey]ID para exportar:[/] {idDisplay}");
         grid.AddRow("");
-        grid.AddRow("[grey]Comandos: [[Enter]] Editar ID  [[E]] Exportar[/]");
+        grid.AddRow("[grey]Comandos: [[Enter]] Editar ID  [[E]] Exportar  [[< / PgUp]] Pagina anterior  [[> / PgDn]] Proxima  [[Home]] Inicio  [[End]] Final[/]");
 
-        if (testes.Count > 0)
-        {
-            grid.AddRow("");
-
-            var table = new Table()
-                .Border(TableBorder.Rounded)
-                .BorderColor(Color.Blue)
-                .AddColumn("[grey]ID[/]")
-                .AddColumn("[grey]Numero[/]")
-                .AddColumn("[grey]Nome[/]")
-                .AddColumn("[grey]Execucao[/]")
-                .AddColumn("[grey]Eventos[/]")
-                .AddColumn("[grey]Sessao[/]");
-
-            foreach (var teste in testes.Take(10))
-            {
-                table.AddRow(
-                    $"[cyan1]{teste.Id}[/]",
-                    $"[yellow]{Markup.Escape(teste.Numero)}[/]",
-                    Markup.Escape(teste.Nome),
-                    teste.DataExecucao.ToString("dd/MM HH:mm"),
-                    $"[cyan1]{teste.TotalEventos}[/]",
-                    $"[grey]#{teste.SessionId}[/]"
-                );
-            }
-
-            grid.AddRow(table);
-
-            if (testes.Count > 10)
-            {
-                grid.AddRow($"[grey]Mostrando 10 de {testes.Count} testes[/]");
-            }
-        }
-        else
+        if (totalTestes == 0)
         {
             grid.AddRow("[grey]Nenhum teste catalogado ainda.[/]");
+            return;
         }
+
+        grid.AddRow("");
+
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .BorderColor(Color.Blue)
+            .AddColumn("[grey]ID[/]")
+            .AddColumn("[grey]Numero[/]")
+            .AddColumn("[grey]Nome[/]")
+            .AddColumn("[grey]Execucao[/]")
+            .AddColumn("[grey]Eventos[/]")
+            .AddColumn("[grey]Sessao[/]");
+
+        var offset = pageIndex * TestsPageSize;
+        var pagina = testes
+            .OrderByDescending(t => t.DataExecucao)
+            .ThenBy(t => t.Id)
+            .Skip(offset)
+            .Take(TestsPageSize);
+
+        foreach (var teste in pagina)
+        {
+            table.AddRow(
+                $"[cyan1]{teste.Id}[/]",
+                $"[yellow]{Markup.Escape(teste.Numero)}[/]",
+                Markup.Escape(teste.Nome),
+                teste.DataExecucao.ToString("dd/MM HH:mm"),
+                $"[cyan1]{teste.TotalEventos}[/]",
+                $"[grey]#{teste.SessionId}[/]"
+            );
+        }
+
+        grid.AddRow(table);
+
+        var exibidos = Math.Min(TestsPageSize, Math.Max(0, totalTestes - offset));
+        grid.AddRow($"[grey]Mostrando {exibidos} de {totalTestes} testes[/]");
     }
 
     private void BuildSessoesContent(Grid grid)
     {
         var sessoes = _context.AppService.ListarSessoes();
 
+        var totalSessoes = sessoes.Count;
+        var maxPageIndex = totalSessoes <= 0 ? 0 : (int)Math.Ceiling(totalSessoes / (double)SessionsPageSize) - 1;
+        if (maxPageIndex < 0)
+        {
+            maxPageIndex = 0;
+        }
+
+        int pageIndex;
+        lock (_context.StateLock)
+        {
+            if (_sessionsPageIndex > maxPageIndex)
+            {
+                _sessionsPageIndex = maxPageIndex;
+            }
+            else if (_sessionsPageIndex < 0)
+            {
+                _sessionsPageIndex = 0;
+            }
+
+            _sessionsTotalPages = maxPageIndex;
+            pageIndex = _sessionsPageIndex;
+        }
+
+        var totalPaginas = Math.Max(1, maxPageIndex + 1);
+        var paginaAtual = totalSessoes == 0 ? 0 : pageIndex + 1;
+
         grid.AddRow("[blue bold]Sessoes de Monitoramento[/]");
         grid.AddRow("");
-        grid.AddRow($"[grey]Total:[/] [cyan1]{sessoes.Count}[/]");
+        grid.AddRow($"[grey]Total:[/] [cyan1]{totalSessoes}[/]  [grey]Pagina:[/] [cyan1]{paginaAtual}/{totalPaginas}[/]");
 
         var currentInputMode = _context.GetCurrentInputMode();
         var sessionIdLabel = currentInputMode == InputMode.EditingSessionId ? "[black on yellow]ID da sessao:[/]" : "[grey]ID da sessao:[/]";
@@ -138,60 +218,64 @@ public sealed class TestsView : IConsoleView
         }
 
         grid.AddRow("");
-        grid.AddRow("[grey]Comandos: [[Enter]] Editar ID  [[L]] Carregar sessao  [[E]] Exportar[/]");
+        grid.AddRow("[grey]Comandos: [[Enter]] Editar ID  [[L]] Carregar sessao  [[E]] Exportar  [[< / PgUp]] Pagina anterior  [[> / PgDn]] Proxima  [[Home]] Inicio  [[End]] Final[/]");
         grid.AddRow("");
 
-        if (sessoes.Count > 0)
-        {
-            var table = new Table()
-                .Border(TableBorder.Rounded)
-                .BorderColor(Color.Blue)
-                .AddColumn("[grey]ID[/]")
-                .AddColumn("[grey]Processo[/]")
-                .AddColumn("[grey]Inicio[/]")
-                .AddColumn("[grey]Fim[/]")
-                .AddColumn("[grey]Duracao[/]")
-                .AddColumn("[grey]Eventos[/]")
-                .AddColumn("[grey]Status[/]");
-
-            foreach (var sessao in sessoes.Take(15))
-            {
-                var duracao = sessao.EndedAt.HasValue
-                    ? (sessao.EndedAt.Value - sessao.StartedAt).TotalMinutes.ToString("F1") + "min"
-                    : "-";
-
-                var status = sessao.EndedAt.HasValue
-                    ? "[green]Encerrada[/]"
-                    : "[yellow]Ativa[/]";
-
-                var fim = sessao.EndedAt.HasValue
-                    ? sessao.EndedAt.Value.ToString("dd/MM HH:mm")
-                    : "-";
-
-                table.AddRow(
-                    $"[cyan1]{sessao.Id}[/]",
-                    Markup.Escape(sessao.TargetProcess),
-                    sessao.StartedAt.ToString("dd/MM HH:mm"),
-                    fim,
-                    duracao,
-                    $"[cyan1]{sessao.TotalEventos}[/]",
-                    status
-                );
-            }
-
-            grid.AddRow(table);
-
-            if (sessoes.Count > 15)
-            {
-                grid.AddRow($"[grey]Mostrando 15 de {sessoes.Count} sessoes[/]");
-            }
-        }
-        else
+        if (totalSessoes == 0)
         {
             grid.AddRow("[grey]Nenhuma sessao encontrada.[/]");
+            return;
         }
 
-        // Exibir detalhes da sessão selecionada
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .BorderColor(Color.Blue)
+            .AddColumn("[grey]ID[/]")
+            .AddColumn("[grey]Processo[/]")
+            .AddColumn("[grey]Inicio[/]")
+            .AddColumn("[grey]Fim[/]")
+            .AddColumn("[grey]Duracao[/]")
+            .AddColumn("[grey]Eventos[/]")
+            .AddColumn("[grey]Status[/]");
+
+        var offset = pageIndex * SessionsPageSize;
+        var pagina = sessoes
+            .OrderByDescending(s => s.StartedAt)
+            .ThenByDescending(s => s.Id)
+            .Skip(offset)
+            .Take(SessionsPageSize);
+
+        foreach (var sessao in pagina)
+        {
+            var duracao = sessao.EndedAt.HasValue
+                ? (sessao.EndedAt.Value - sessao.StartedAt).TotalMinutes.ToString("F1") + "min"
+                : "-";
+
+            var status = sessao.EndedAt.HasValue
+                ? "[green]Encerrada[/]"
+                : "[yellow]Ativa[/]";
+
+            var fim = sessao.EndedAt.HasValue
+                ? sessao.EndedAt.Value.ToString("dd/MM HH:mm")
+                : "-";
+
+            table.AddRow(
+                $"[cyan1]{sessao.Id}[/]",
+                Markup.Escape(sessao.TargetProcess),
+                sessao.StartedAt.ToString("dd/MM HH:mm"),
+                fim,
+                duracao,
+                $"[cyan1]{sessao.TotalEventos}[/]",
+                status
+            );
+        }
+
+        grid.AddRow(table);
+
+        var exibidos = Math.Min(SessionsPageSize, Math.Max(0, totalSessoes - offset));
+        grid.AddRow($"[grey]Mostrando {exibidos} de {totalSessoes} sessoes[/]");
+
+        // Exibir detalhes da sessao selecionada
         if (_selectedSession != null)
         {
             grid.AddRow("");
@@ -236,7 +320,7 @@ public sealed class TestsView : IConsoleView
                 FormatarObservacoes(_selectedSession.Notes, grid);
             }
 
-            // Exibir estatísticas da sessão
+            // Exibir estatísticas da sessao
             if (_selectedSessionStats != null)
             {
                 grid.AddRow("");
@@ -317,6 +401,117 @@ public sealed class TestsView : IConsoleView
         }
     }
 
+    private void BuildAlertasContent(Grid grid)
+    {
+        var totalAlertas = _context.AppService.ContarAlertas();
+
+        var maxPageIndex = totalAlertas <= 0
+            ? 0
+            : (int)Math.Ceiling(totalAlertas / (double)AlertsPageSize) - 1;
+        if (maxPageIndex < 0)
+        {
+            maxPageIndex = 0;
+        }
+
+        int pageIndex;
+        lock (_context.StateLock)
+        {
+            if (_alertsPageIndex > maxPageIndex)
+            {
+                _alertsPageIndex = maxPageIndex;
+            }
+            else if (_alertsPageIndex < 0)
+            {
+                _alertsPageIndex = 0;
+            }
+
+            _alertsTotalPages = maxPageIndex;
+            pageIndex = _alertsPageIndex;
+        }
+
+        grid.AddRow("[blue bold]Historico de Alertas[/]");
+        grid.AddRow("");
+        var totalPaginas = Math.Max(1, maxPageIndex + 1);
+        var paginaAtual = totalAlertas == 0 ? 0 : pageIndex + 1;
+        grid.AddRow($"[grey]Total:[/] [cyan1]{totalAlertas}[/]  [grey]Pagina:[/] [cyan1]{paginaAtual}/{totalPaginas}[/]");
+        grid.AddRow("[grey]Comandos: [[A]] Alertas  [[< / PgUp]] Pagina anterior  [[> / PgDn]] Proxima  [[Home]] Inicio  [[End]] Final  [[R]] Atualizar[/]");
+        grid.AddRow("");
+
+        if (totalAlertas == 0)
+        {
+            grid.AddRow("[grey]Nenhum alerta registrado ate o momento.[/]");
+            return;
+        }
+
+        var offset = pageIndex * AlertsPageSize;
+        var alertas = _context.AppService.ListarAlertas(offset, AlertsPageSize);
+
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .BorderColor(Color.Blue)
+            .AddColumn("[grey]Data/Hora[/]")
+            .AddColumn("[grey]Sessao[/]")
+            .AddColumn("[grey]Anterior[/]")
+            .AddColumn("[grey]Novo[/]")
+            .AddColumn("[grey]Tecnica[/]")
+            .AddColumn("[grey]Similaridade[/]")
+            .AddColumn("[grey]Motivo[/]");
+
+        foreach (var alerta in alertas)
+        {
+            var timestamp = alerta.Timestamp.ToString("dd/MM HH:mm:ss");
+            var tecnica = string.IsNullOrWhiteSpace(alerta.TriggerTechniqueId)
+                ? "[grey]-[/]"
+                : $"[cyan1]{Markup.Escape(alerta.TriggerTechniqueId!)}[/]";
+            var similarity = alerta.TriggerSimilarity.HasValue
+                ? $"[yellow]{alerta.TriggerSimilarity.Value:P0}[/]"
+                : "[grey]-[/]";
+            var motivo = string.IsNullOrWhiteSpace(alerta.Reason)
+                ? "[grey]-[/]"
+                : Markup.Escape(Truncate(alerta.Reason, 80));
+
+            table.AddRow(
+                $"[cyan1]{timestamp}[/]",
+                $"[grey]#{alerta.SessionId}[/]",
+                FormatTarja(alerta.PreviousLevel),
+                FormatTarja(alerta.NewLevel),
+                tecnica,
+                similarity,
+                motivo);
+        }
+
+        grid.AddRow(table);
+        var exibidos = Math.Min(AlertsPageSize, Math.Max(0, totalAlertas - offset));
+        grid.AddRow($"[grey]Mostrando {exibidos} de {totalAlertas} alertas.[/]");
+    }
+    private static string FormatTarja(NormalizationThreatSeverityTarja? tarja) => tarja.HasValue ? FormatTarja(tarja.Value) : "[grey]-[/]";
+
+    private static string FormatTarja(NormalizationThreatSeverityTarja tarja)
+    {
+        return tarja switch
+        {
+            NormalizationThreatSeverityTarja.Verde => "[green]Verde[/]",
+            NormalizationThreatSeverityTarja.Amarelo => "[yellow]Amarelo[/]",
+            NormalizationThreatSeverityTarja.Laranja => "[orange1]Laranja[/]",
+            NormalizationThreatSeverityTarja.Vermelho => "[red]Vermelho[/]",
+            _ => $"[grey]{tarja}[/]"
+        };
+    }
+
+    private static string Truncate(string value, int maxLength)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length <= maxLength)
+        {
+            return value;
+        }
+
+        if (maxLength <= 3)
+        {
+            return value.Substring(0, maxLength);
+        }
+
+        return value.Substring(0, maxLength - 3) + "...";
+    }
     private static string GetEventDescription(int eventId)
     {
         return eventId switch
@@ -376,9 +571,164 @@ public sealed class TestsView : IConsoleView
             return;
         }
 
-        // Comandos na aba de sessões
+        if (key.Key == ConsoleKey.A)
+        {
+            lock (_context.StateLock)
+            {
+                _viewMode = ViewMode.Alertas;
+                _context.RequestRefresh();
+            }
+            return;
+        }
+
+        if (_viewMode == ViewMode.Testes)
+        {
+            var handledPaging = false;
+            lock (_context.StateLock)
+            {
+                switch (key.Key)
+                {
+                    case ConsoleKey.LeftArrow:
+                    case ConsoleKey.UpArrow:
+                    case ConsoleKey.PageUp:
+                        if (_testsPageIndex > 0)
+                        {
+                            _testsPageIndex--;
+                            handledPaging = true;
+                        }
+                        break;
+                    case ConsoleKey.RightArrow:
+                    case ConsoleKey.DownArrow:
+                    case ConsoleKey.PageDown:
+                        if (_testsPageIndex < _testsTotalPages)
+                        {
+                            _testsPageIndex++;
+                            handledPaging = true;
+                        }
+                        break;
+                    case ConsoleKey.Home:
+                        if (_testsPageIndex != 0)
+                        {
+                            _testsPageIndex = 0;
+                            handledPaging = true;
+                        }
+                        break;
+                    case ConsoleKey.End:
+                        if (_testsPageIndex != _testsTotalPages)
+                        {
+                            _testsPageIndex = _testsTotalPages;
+                            handledPaging = true;
+                        }
+                        break;
+                }
+            }
+
+            if (handledPaging)
+            {
+                _context.RequestRefresh();
+                return;
+            }
+        }
+        if (_viewMode == ViewMode.Alertas)
+        {
+            var changed = false;
+            lock (_context.StateLock)
+            {
+                switch (key.Key)
+                {
+                    case ConsoleKey.LeftArrow:
+                    case ConsoleKey.UpArrow:
+                    case ConsoleKey.PageUp:
+                        if (_alertsPageIndex > 0)
+                        {
+                            _alertsPageIndex--;
+                            changed = true;
+                        }
+                        break;
+                    case ConsoleKey.RightArrow:
+                    case ConsoleKey.DownArrow:
+                    case ConsoleKey.PageDown:
+                        if (_alertsPageIndex < _alertsTotalPages)
+                        {
+                            _alertsPageIndex++;
+                            changed = true;
+                        }
+                        break;
+                    case ConsoleKey.Home:
+                        if (_alertsPageIndex != 0)
+                        {
+                            _alertsPageIndex = 0;
+                            changed = true;
+                        }
+                        break;
+                    case ConsoleKey.End:
+                        if (_alertsPageIndex != _alertsTotalPages)
+                        {
+                            _alertsPageIndex = _alertsTotalPages;
+                            changed = true;
+                        }
+                        break;
+                    case ConsoleKey.R:
+                        changed = true;
+                        break;
+                }
+            }
+
+            if (changed)
+            {
+                _context.RequestRefresh();
+            }
+            return;
+        }
+
+        // Comandos na aba de sessoes
         if (_viewMode == ViewMode.Sessoes)
         {
+            var handledPaging = false;
+            lock (_context.StateLock)
+            {
+                switch (key.Key)
+                {
+                    case ConsoleKey.LeftArrow:
+                    case ConsoleKey.UpArrow:
+                    case ConsoleKey.PageUp:
+                        if (_sessionsPageIndex > 0)
+                        {
+                            _sessionsPageIndex--;
+                            handledPaging = true;
+                        }
+                        break;
+                    case ConsoleKey.RightArrow:
+                    case ConsoleKey.DownArrow:
+                    case ConsoleKey.PageDown:
+                        if (_sessionsPageIndex < _sessionsTotalPages)
+                        {
+                            _sessionsPageIndex++;
+                            handledPaging = true;
+                        }
+                        break;
+                    case ConsoleKey.Home:
+                        if (_sessionsPageIndex != 0)
+                        {
+                            _sessionsPageIndex = 0;
+                            handledPaging = true;
+                        }
+                        break;
+                    case ConsoleKey.End:
+                        if (_sessionsPageIndex != _sessionsTotalPages)
+                        {
+                            _sessionsPageIndex = _sessionsTotalPages;
+                            handledPaging = true;
+                        }
+                        break;
+                }
+            }
+
+            if (handledPaging)
+            {
+                _context.RequestRefresh();
+                return;
+            }
             if (key.Key == ConsoleKey.L)
             {
                 LoadSession();
@@ -412,7 +762,6 @@ public sealed class TestsView : IConsoleView
             }
         }
     }
-
     /// <summary>
     /// Processa entrada do usuário em modo edição.
     /// </summary>
@@ -623,3 +972,5 @@ public sealed class TestsView : IConsoleView
         }
     }
 }
+
+

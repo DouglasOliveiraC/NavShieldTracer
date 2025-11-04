@@ -2049,6 +2049,105 @@ namespace NavShieldTracer.Storage
         }
 
         /// <summary>
+        /// Obtém a quantidade total de alertas registrados.
+        /// </summary>
+        public int ContarAlertas()
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM alert_history;";
+            var result = cmd.ExecuteScalar();
+            return result is null || result == DBNull.Value ? 0 : Convert.ToInt32(result);
+        }
+
+        /// <summary>
+        /// Recupera uma janela paginada do histórico de alertas.
+        /// </summary>
+        /// <param name="offset">Quantidade de registros a ignorar.</param>
+        /// <param name="limit">Quantidade máxima de registros retornados.</param>
+        /// <returns>Lista com os alertas ordenados por data mais recente.</returns>
+        public IReadOnlyList<ThreatAlert> ListarAlertas(int offset, int limit)
+        {
+            if (limit <= 0)
+            {
+                return Array.Empty<ThreatAlert>();
+            }
+
+            if (offset < 0)
+            {
+                offset = 0;
+            }
+
+            var alertas = new List<ThreatAlert>(limit);
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT
+                    session_id,
+                    timestamp,
+                    previous_level,
+                    new_level,
+                    reason,
+                    trigger_technique_id,
+                    trigger_similarity,
+                    snapshot_id
+                FROM alert_history
+                ORDER BY timestamp DESC, id DESC
+                LIMIT $limit OFFSET $offset;
+            ";
+            cmd.Parameters.AddWithValue("$limit", limit);
+            cmd.Parameters.AddWithValue("$offset", offset);
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var sessionId = reader.GetInt32(0);
+                var timestampRaw = reader.GetString(1);
+                if (!DateTime.TryParse(timestampRaw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var timestamp) &&
+                    !DateTime.TryParse(timestampRaw, out timestamp))
+                {
+                    timestamp = DateTime.MinValue;
+                }
+
+                ThreatSeverityTarja? previousLevel = null;
+                if (!reader.IsDBNull(2))
+                {
+                    var raw = reader.GetString(2);
+                    if (Enum.TryParse(raw, ignoreCase: true, out ThreatSeverityTarja parsedPrev))
+                    {
+                        previousLevel = parsedPrev;
+                    }
+                }
+
+                var newLevelRaw = reader.GetString(3);
+                if (!Enum.TryParse(newLevelRaw, ignoreCase: true, out ThreatSeverityTarja newLevel))
+                {
+                    newLevel = ThreatSeverityTarja.Verde;
+                }
+
+                var reason = reader.IsDBNull(4) ? string.Empty : reader.GetString(4);
+                var triggerTechniqueId = reader.IsDBNull(5) ? null : reader.GetString(5);
+                double? triggerSimilarity = null;
+                if (!reader.IsDBNull(6))
+                {
+                    triggerSimilarity = reader.GetDouble(6);
+                }
+
+                int? snapshotId = reader.IsDBNull(7) ? null : reader.GetInt32(7);
+
+                alertas.Add(new ThreatAlert(
+                    sessionId,
+                    timestamp,
+                    previousLevel,
+                    newLevel,
+                    reason,
+                    triggerTechniqueId,
+                    triggerSimilarity,
+                    snapshotId));
+            }
+
+            return alertas;
+        }
+
+        /// <summary>
         /// Libera os recursos utilizados pelo armazenamento
         /// </summary>
         public void Dispose()

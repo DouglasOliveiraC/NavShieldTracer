@@ -87,16 +87,3 @@ Tamanho arquivo         : 16.38 MB
 ## Limpeza
 
 Os testes removem automaticamente os bancos temporarios criados em `%TEMP%`. Caso o processo seja interrompido, basta apagar manualmente os arquivos com prefixo `test_*.sqlite`.
-
-## Medicao de Cobertura
-
-O projeto referencia o `coverlet.collector`. Para coletar cobertura durante a execucao:
-
-```bash
-dotnet test NavShieldTracer.Tests/NavShieldTracer.Tests.csproj \
-  /p:CollectCoverage=true \
-  /p:CoverletOutputFormat=cobertura \
-  /p:CoverletOutput=coverage/
-```
-
-O arquivo `coverage.cobertura.xml` pode ser importado em ferramentas como ReportGenerator ou Azure DevOps.

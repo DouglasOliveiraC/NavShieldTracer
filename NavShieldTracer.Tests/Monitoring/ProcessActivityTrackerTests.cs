@@ -141,5 +141,9 @@ public sealed class ProcessActivityTrackerTests
             ProcessosCriados = new List<string>(),
             TarjaTesteAssociado = null
         };
+
+        public int ContarAlertas() => 0;
+
+        public IReadOnlyList<ThreatAlert> ListarAlertas(int offset, int limit) => Array.Empty<ThreatAlert>();
     }
 }
