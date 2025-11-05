@@ -67,3 +67,4 @@ APRESENTACAO_*.*
 /docs
 /NavShieldTracer/ConsoleApp/UI/ConsoleUI.cs.backup
 *.qea
+.idea/
