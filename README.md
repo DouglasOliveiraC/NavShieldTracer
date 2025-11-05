@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?style=flat-square&logo=windows)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-![NavShield Interface](.github/assets/navshield-interface.png)
+![NavShield Interface](.github/assets/navshield-interface.png?v=2)
 
 NavShieldTracer e uma ferramenta de monitoramento de processos para Windows que registra eventos do Sysmon em uma base SQLite para apoiar investigacao forense e operacoes de defesa. A versao 1.0 consolidou todas as entregas planejadas, incluindo coleta confiavel, persistencia estruturada e suite de testes. O modulo de analise comportamental com tecnicas de IA permanece planejado para a proxima iteracao.
 
