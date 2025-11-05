@@ -39,7 +39,6 @@ TestResults/
 # Arquivos de documentação (exceto README.md)
 *.md
 !README.md
-!CLAUDE.md
 
 # Arquivos LaTeX
 *.tex
@@ -67,3 +66,4 @@ APRESENTACAO_*.*
 /DbReader
 /docs
 /NavShieldTracer/ConsoleApp/UI/ConsoleUI.cs.backup
+*.qea
