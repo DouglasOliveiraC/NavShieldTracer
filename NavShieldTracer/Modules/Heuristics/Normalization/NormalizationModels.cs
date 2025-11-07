@@ -9,6 +9,7 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
     public enum ThreatSeverityTarja
     {
         Verde,
+        Azul,
         Amarelo,
         Laranja,
         Vermelho

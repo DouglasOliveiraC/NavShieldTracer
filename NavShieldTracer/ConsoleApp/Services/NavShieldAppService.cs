@@ -630,7 +630,7 @@ public sealed class NavShieldAppService : IDisposable
     /// Atualiza a tarja (severidade) de um teste atômico.
     /// </summary>
     /// <param name="testeId">ID do teste a ser atualizado.</param>
-    /// <param name="tarja">Nova tarja (Verde, Amarelo, Laranja, Vermelho).</param>
+    /// <param name="tarja">Nova tarja (Verde, Azul, Amarelo, Laranja, Vermelho).</param>
     /// <param name="tarjaReason">Justificativa da tarja (opcional).</param>
     /// <returns>True se atualizado com sucesso, false caso contrário.</returns>
     public bool AtualizarTarja(int testeId, string tarja, string? tarjaReason = null)
@@ -669,7 +669,7 @@ public sealed class NavShieldAppService : IDisposable
     /// Salva metadados de review pós-catalogação: observações e nível de alerta.
     /// </summary>
     /// <param name="testeId">ID do teste atômico catalogado.</param>
-    /// <param name="tarja">Nível de alerta (Verde, Amarelo, Laranja, Vermelho).</param>
+    /// <param name="tarja">Nível de alerta (Verde, Azul, Amarelo, Laranja, Vermelho).</param>
     /// <param name="observacoes">Observações sobre o teste (opcional).</param>
     /// <returns>True se salvo com sucesso, false caso contrário.</returns>
     public bool SaveTestReview(int testeId, string tarja, string? observacoes)

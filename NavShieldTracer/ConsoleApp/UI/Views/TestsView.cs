@@ -491,6 +491,7 @@ public sealed class TestsView : IConsoleView
         return tarja switch
         {
             NormalizationThreatSeverityTarja.Verde => "[green]Verde[/]",
+            NormalizationThreatSeverityTarja.Azul => "[deepskyblue1]Azul[/]",
             NormalizationThreatSeverityTarja.Amarelo => "[yellow]Amarelo[/]",
             NormalizationThreatSeverityTarja.Laranja => "[orange1]Laranja[/]",
             NormalizationThreatSeverityTarja.Vermelho => "[red]Vermelho[/]",

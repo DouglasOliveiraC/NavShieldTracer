@@ -1329,7 +1329,7 @@ namespace NavShieldTracer.Storage
         /// Atualiza a tarja (severidade) de um teste atômico
         /// </summary>
         /// <param name="testeId">ID do teste</param>
-        /// <param name="tarja">Nova tarja (Verde, Amarelo, Laranja, Vermelho)</param>
+        /// <param name="tarja">Nova tarja (Verde, Azul, Amarelo, Laranja, Vermelho)</param>
         /// <param name="tarjaReason">Justificativa da tarja (opcional)</param>
         public void AtualizarTarjaTesteAtomico(int testeId, string tarja, string? tarjaReason = null)
         {
@@ -1368,7 +1368,7 @@ namespace NavShieldTracer.Storage
         /// </summary>
         /// <param name="testeId">ID do teste atômico catalogado.</param>
         /// <param name="observacoes">Observações sobre o teste (opcional).</param>
-        /// <param name="tarja">Nível de alerta/tarja (Verde, Amarelo, Laranja, Vermelho).</param>
+        /// <param name="tarja">Nível de alerta/tarja (Verde, Azul, Amarelo, Laranja, Vermelho).</param>
         public void SalvarReviewTeste(int testeId, string? observacoes, string tarja)
         {
             using var tx = _conn.BeginTransaction();

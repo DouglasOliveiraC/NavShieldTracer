@@ -317,7 +317,7 @@ public sealed class ConsoleUI
             InputMode.EditingManageNumero => "[yellow]Modo: EDITANDO NUMERO - [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
             InputMode.EditingManageNome => "[yellow]Modo: EDITANDO NOME - [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
             InputMode.EditingManageDescricao => "[yellow]Modo: EDITANDO DESCRICAO - [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
-            InputMode.EditingManageTarja => "[yellow]Modo: EDITANDO TARJA - [[↑/↓]] ou [[1-4]] Selecionar │ [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
+            InputMode.EditingManageTarja => "[yellow]Modo: EDITANDO TARJA - [[↑/↓]] ou [[1-5]] Selecionar │ [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
             InputMode.EditingManageNotes => "[yellow]Modo: EDITANDO NOTAS - [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",
             InputMode.CatalogEditing => "[yellow]Modo: CATALOGACAO - [[1-4]] Editar │ [[I]] Iniciar │ [[C]] Limpar │ [[F]] Finalizar │ [[Esc]] Sair[/]",
             InputMode.EditingCatalogNumero => "[yellow]Modo: EDITANDO NUMERO TESTE - [[Enter]] Confirmar │ [[Esc]] Cancelar[/]",

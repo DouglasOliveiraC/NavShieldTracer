@@ -89,9 +89,10 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
             Console.WriteLine($"Sugestão atual: {assinatura.Severity} ({assinatura.SeverityReason})");
             Console.WriteLine("Pressione ENTER para manter ou escolha uma tarja:");
             Console.WriteLine("  1 - Verde    (sem risco)");
-            Console.WriteLine("  2 - Amarela  (atenção)");
-            Console.WriteLine("  3 - Laranja  (alto risco)");
-            Console.WriteLine("  4 - Vermelho (ameaça crítica)");
+            Console.WriteLine("  2 - Azul     (moderado)");
+            Console.WriteLine("  3 - Amarela  (atencao)");
+            Console.WriteLine("  4 - Laranja  (alto risco)");
+            Console.WriteLine("  5 - Vermelho (ameaca critica)");
             Console.Write("> ");
 
             var entrada = Console.ReadLine();
@@ -102,9 +103,10 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
                 novaTarja = entrada.Trim() switch
                 {
                     "1" => ThreatSeverityTarja.Verde,
-                    "2" => ThreatSeverityTarja.Amarelo,
-                    "3" => ThreatSeverityTarja.Laranja,
-                    "4" => ThreatSeverityTarja.Vermelho,
+                    "2" => ThreatSeverityTarja.Azul,
+                    "3" => ThreatSeverityTarja.Amarelo,
+                    "4" => ThreatSeverityTarja.Laranja,
+                    "5" => ThreatSeverityTarja.Vermelho,
                     _ => assinatura.Severity
                 };
             }
@@ -120,3 +122,4 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
 
     }
 }
+

@@ -59,6 +59,37 @@ public sealed class CatalogNormalizerTests
         Assert.Contains(resultado.Logs, log => log.Stage == "SEVERITY" && log.Level == "INFO");
     }
 
+    [Fact]
+    public void Normalize_ComAtividadeModerada_RetornaTarjaAzul()
+    {
+        var teste = new TesteAtomico(
+            Id: 3,
+            Numero: "T1218",
+            Nome: "Process Tampering Moderado",
+            Descricao: "Evento isolado com baixa cobertura",
+            DataExecucao: DateTime.UtcNow,
+            SessionId: 3,
+            TotalEventos: 4);
+
+        var eventos = new[]
+        {
+            CreateSnapshot(eventRowId: 1, eventId: 15),
+            CreateSnapshot(eventRowId: 2, eventId: 3),
+            CreateSnapshot(eventRowId: 3, eventId: 1),
+            CreateSnapshot(eventRowId: 4, eventId: 2)
+        };
+
+        var context = new NormalizationContext(teste, eventos);
+        var normalizer = new CatalogNormalizer();
+
+        var resultado = normalizer.Normalize(context);
+
+        Assert.Equal(NormalizationStatus.Completed, resultado.Signature.Status);
+        Assert.Equal(ThreatSeverityTarja.Azul, resultado.Signature.Severity);
+        Assert.Equal(1, resultado.Segregation.CoreEvents.Count);
+        Assert.True(resultado.Quality.CoveragePercentual < 25);
+    }
+
     private static CatalogEventSnapshot CreateSnapshot(
         int eventRowId,
         int eventId,

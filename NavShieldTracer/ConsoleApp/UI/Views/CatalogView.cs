@@ -126,6 +126,7 @@ public sealed class CatalogView : IConsoleView
         var tarjaOptions = new[]
         {
             ("Verde", ThreatSeverityTarja.Verde, "green"),
+            ("Azul", ThreatSeverityTarja.Azul, "dodgerblue1"),
             ("Amarelo", ThreatSeverityTarja.Amarelo, "yellow"),
             ("Laranja", ThreatSeverityTarja.Laranja, "orange3"),
             ("Vermelho", ThreatSeverityTarja.Vermelho, "red")
@@ -380,7 +381,7 @@ public sealed class CatalogView : IConsoleView
             lock (_context.StateLock)
             {
                 int current = (int)_postReviewTarja;
-                _postReviewTarja = (ThreatSeverityTarja)Math.Min(3, current + 1);
+                _postReviewTarja = (ThreatSeverityTarja)Math.Min(4, current + 1);
                 _context.RequestRefresh();
             }
             return;

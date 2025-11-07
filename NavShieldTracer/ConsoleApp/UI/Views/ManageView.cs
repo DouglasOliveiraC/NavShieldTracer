@@ -593,7 +593,7 @@ public sealed class ManageView : IConsoleView
         {
             lock (_context.StateLock)
             {
-                var tarjas = new[] { "Verde", "Amarelo", "Laranja", "Vermelho" };
+                var tarjas = new[] { "Verde", "Azul", "Amarelo", "Laranja", "Vermelho" };
                 var currentIndex = Array.IndexOf(tarjas, _manageTarja);
 
                 if (currentIndex == -1)
@@ -614,16 +614,17 @@ public sealed class ManageView : IConsoleView
                 _context.RequestRefresh();
             }
         }
-        else if (key.KeyChar >= '1' && key.KeyChar <= '4')
+        else if (key.KeyChar >= '1' && key.KeyChar <= '5')
         {
             lock (_context.StateLock)
             {
                 _manageTarja = key.KeyChar switch
                 {
                     '1' => "Verde",
-                    '2' => "Amarelo",
-                    '3' => "Laranja",
-                    '4' => "Vermelho",
+                    '2' => "Azul",
+                    '3' => "Amarelo",
+                    '4' => "Laranja",
+                    '5' => "Vermelho",
                     _ => _manageTarja
                 };
                 _context.RequestRefresh();
@@ -661,6 +662,7 @@ public sealed class ManageView : IConsoleView
             return tarja.ToLowerInvariant() switch
             {
                 "verde" => "[black on yellow]Verde[/]",
+                "azul" => "[black on yellow]Azul[/]",
                 "amarelo" => "[black on yellow]Amarelo[/]",
                 "laranja" => "[black on yellow]Laranja[/]",
                 "vermelho" => "[black on yellow]Vermelho[/]",
@@ -671,6 +673,7 @@ public sealed class ManageView : IConsoleView
         return tarja.ToLowerInvariant() switch
         {
             "verde" => "[green]Verde[/]",
+            "azul" => "[deepskyblue1]Azul[/]",
             "amarelo" => "[yellow]Amarelo[/]",
             "laranja" => "[orange1]Laranja[/]",
             "vermelho" => "[red]Vermelho[/]",

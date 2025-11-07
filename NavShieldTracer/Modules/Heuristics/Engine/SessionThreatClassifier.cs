@@ -69,9 +69,10 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
         {
             return level switch
             {
-                ThreatSeverityTarja.Vermelho => 4,
-                ThreatSeverityTarja.Laranja => 3,
-                ThreatSeverityTarja.Amarelo => 2,
+                ThreatSeverityTarja.Vermelho => 5,
+                ThreatSeverityTarja.Laranja => 4,
+                ThreatSeverityTarja.Amarelo => 3,
+                ThreatSeverityTarja.Azul => 2,
                 ThreatSeverityTarja.Verde => 1,
                 _ => 0
             };
@@ -103,11 +104,12 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
         {
             return level switch
             {
-                ThreatSeverityTarja.Verde => "🟢",
-                ThreatSeverityTarja.Amarelo => "🟡",
-                ThreatSeverityTarja.Laranja => "🟠",
-                ThreatSeverityTarja.Vermelho => "🔴",
-                _ => "⚪"
+                ThreatSeverityTarja.Verde => "[V]",
+                ThreatSeverityTarja.Azul => "[B]",
+                ThreatSeverityTarja.Amarelo => "[Y]",
+                ThreatSeverityTarja.Laranja => "[O]",
+                ThreatSeverityTarja.Vermelho => "[R]",
+                _ => "?"
             };
         }
 
@@ -118,12 +120,13 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
         {
             return level switch
             {
-                ThreatSeverityTarja.Verde => "Normal - Operações típicas do sistema",
-                ThreatSeverityTarja.Amarelo => "Atenção - Execução básica ou reconhecimento detectado",
-                ThreatSeverityTarja.Laranja => "Alto Risco - Estabelecimento de foothold, evasão ou movimento lateral",
-                ThreatSeverityTarja.Vermelho => "Crítico - Acesso privilegiado, persistência avançada, exfiltração ou impacto",
+                ThreatSeverityTarja.Verde => "Baixo - Operacoes normais e probabilidade muito baixa.",
+                ThreatSeverityTarja.Azul => "Moderado - Atividades maliciosas sem impacto em infraestrutura critica.",
+                ThreatSeverityTarja.Amarelo => "Medio - Acoes hostis com risco a infraestrutura critica, sem comprometimento.",
+                ThreatSeverityTarja.Laranja => "Alto - Infraestrutura critica degradada com restabelecimento possivel.",
+                ThreatSeverityTarja.Vermelho => "Severo - Impacto critico com restabelecimento fora do aceitavel.",
                 _ => "Desconhecido"
-            };
+            };        };
         }
 
         /// <summary>
@@ -158,25 +161,30 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
             switch (level)
             {
                 case ThreatSeverityTarja.Vermelho:
-                    recommendations.Add("⚠️ ISOLAR HOST DA REDE IMEDIATAMENTE");
-                    recommendations.Add("⚠️ CAPTURAR MEMÓRIA DOS PROCESSOS ENVOLVIDOS");
-                    recommendations.Add("⚠️ INICIAR INVESTIGAÇÃO DE INCIDENTE");
-                    recommendations.Add("⚠️ NOTIFICAR EQUIPE DE SEGURANÇA");
+                    recommendations.Add("!! ISOLAR HOST DA REDE IMEDIATAMENTE");
+                    recommendations.Add("!! CAPTURAR MEMORIA DOS PROCESSOS ENVOLVIDOS");
+                    recommendations.Add("!! INICIAR INVESTIGACAO DE INCIDENTE");
+                    recommendations.Add("!! NOTIFICAR EQUIPE DE SEGURANCA");
                     break;
 
                 case ThreatSeverityTarja.Laranja:
-                    recommendations.Add("⚠️ MONITORAR CONEXÕES DE REDE ATIVAS");
-                    recommendations.Add("⚠️ VERIFICAR PERSISTÊNCIA NO SISTEMA");
-                    recommendations.Add("⚠️ REVISAR LOGS DE AUTENTICAÇÃO");
+                    recommendations.Add("!! MONITORAR CONEXOES DE REDE ATIVAS");
+                    recommendations.Add("!! VERIFICAR PERSISTENCIA NO SISTEMA");
+                    recommendations.Add("!! REVISAR LOGS DE AUTENTICACAO");
                     break;
 
                 case ThreatSeverityTarja.Amarelo:
-                    recommendations.Add("ℹ️ AUMENTAR NÍVEL DE MONITORAMENTO");
-                    recommendations.Add("ℹ️ REVISAR PROCESSOS CRIADOS");
+                    recommendations.Add("?? AUMENTAR NIVEL DE MONITORAMENTO");
+                    recommendations.Add("?? REVISAR PROCESSOS CRIADOS E AGENDAMENTOS");
+                    break;
+
+                case ThreatSeverityTarja.Azul:
+                    recommendations.Add("?? MONITORAR CONTINUAMENTE E CORRELACIONAR ALERTAS");
+                    recommendations.Add("?? VALIDAR CONFIGURACOES DEFENSIVAS E CAPTURAR EVIDENCIAS");
                     break;
 
                 case ThreatSeverityTarja.Verde:
-                    recommendations.Add("✓ CONTINUAR MONITORAMENTO NORMAL");
+                    recommendations.Add("OK CONTINUAR MONITORAMENTO NORMAL");
                     break;
             }
 
@@ -211,3 +219,11 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
         }
     }
 }
+
+
+
+
+
+
+
+

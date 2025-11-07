@@ -82,10 +82,13 @@ public enum ThreatSeverityTarja
 {
     /// <summary>Sem risco detectado.</summary>
     Verde = 0,
-    /// <summary>Atenção requerida.</summary>
-    Amarelo = 1,
+    /// <summary>Nivel moderado.</summary>
+    Azul = 1,
+    /// <summary>Nivel medio.</summary>
+    Amarelo = 2,
     /// <summary>Alto risco.</summary>
-    Laranja = 2,
-    /// <summary>Ameaça crítica.</summary>
-    Vermelho = 3
+    Laranja = 3,
+    /// <summary>Ameaca critica.</summary>
+    Vermelho = 4
 }
+

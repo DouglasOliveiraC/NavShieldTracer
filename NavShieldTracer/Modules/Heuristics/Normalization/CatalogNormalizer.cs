@@ -500,6 +500,7 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
     {
         private static readonly int[] CredentialAccessEvents = { 8, 10, 11 };
         private static readonly int[] LateralMovementEvents = { 3, 17, 18, 19, 20, 21 };
+        private static readonly int[] InfrastructureRiskEvents = { 12, 13, 14, 23 };
 
         public SeverityDecision Suggest(
             NormalizationContext context,
@@ -507,39 +508,52 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
             NormalizationQualityMetrics quality,
             IList<NormalizationLogEntry> logs)
         {
-            foreach (var evento in segregation.CoreEvents)
+            var coreEvents = segregation.CoreEvents;
+            var coreCount = coreEvents.Count;
+
+            if (coreCount == 0)
+            {
+                logs.Add(new NormalizationLogEntry("SEVERITY", "INFO",
+                    "Nenhum evento critico - tarja Verde atribuida."));
+                return new SeverityDecision(ThreatSeverityTarja.Verde,
+                    "Amostra sem indicadores de ameaca relevantes.");
+            }
+
+            foreach (var evento in coreEvents)
             {
                 if (CredentialAccessEvents.Contains(evento.EventId) && IndicatesCredentialDump(evento))
                 {
                     logs.Add(new NormalizationLogEntry("SEVERITY", "INFO",
-                        "Detecção de padrão de credential dumping - tarja Vermelha aplicada."));
+                        "Detectado padrao de credential dumping - tarja Vermelha aplicada."));
                     return new SeverityDecision(ThreatSeverityTarja.Vermelho,
-                        "Padrão de credential dumping (LSASS/Injection).");
+                        "Padrao de credential dumping (LSASS/Injection).");
                 }
             }
 
-            if (segregation.CoreEvents.Any(ev => LateralMovementEvents.Contains(ev.EventId)))
+            if (coreEvents.Any(ev => LateralMovementEvents.Contains(ev.EventId)))
             {
                 logs.Add(new NormalizationLogEntry("SEVERITY", "INFO",
-                    "Eventos críticos de movimento lateral detectados - tarja Laranja sugerida."));
+                    "Eventos de movimento lateral ou exfiltracao identificados - tarja Laranja sugerida."));
                 return new SeverityDecision(ThreatSeverityTarja.Laranja,
-                    "Indicadores de movimento lateral/exfiltração.");
+                    "Indicadores de movimento lateral ou degradacao controlada.");
             }
 
-            if (segregation.CoreEvents.Count > 0)
+            var possuiRiscoInfraestrutura = coreEvents.Any(ev => InfrastructureRiskEvents.Contains(ev.EventId));
+            var coberturaRelevante = quality.CoveragePercentual >= 25 || coreCount >= 3;
+
+            if (possuiRiscoInfraestrutura || coberturaRelevante)
             {
                 logs.Add(new NormalizationLogEntry("SEVERITY", "INFO",
-                    "Eventos críticos presentes sem sinais de credencial ou lateral movement - tarja Amarela."));
+                    "Risco a infraestrutura critica identificado - tarja Amarela sugerida."));
                 return new SeverityDecision(ThreatSeverityTarja.Amarelo,
-                    "Execução de técnica adversarial sem evidências de escalonamento crítico.");
+                    "Acoes hostis com risco a infraestrutura, sem comprometimento confirmado.");
             }
 
             logs.Add(new NormalizationLogEntry("SEVERITY", "INFO",
-                "Nenhum evento crítico - tarja Verde atribuída."));
-            return new SeverityDecision(ThreatSeverityTarja.Verde,
-                "Amostra sem indicadores de ameaça relevantes.");
+                "Atividade adversarial moderada - tarja Azul sugerida."));
+            return new SeverityDecision(ThreatSeverityTarja.Azul,
+                "Atividades maliciosas detectadas sem impacto em infraestrutura critica.");
         }
-
         private static bool IndicatesCredentialDump(CatalogEventSnapshot evento)
         {
             var cmd = (evento.CommandLine ?? string.Empty).ToLowerInvariant();
@@ -562,3 +576,5 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
 
     internal record SeverityDecision(ThreatSeverityTarja Severity, string Reason);
 }
+
+

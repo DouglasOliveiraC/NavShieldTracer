@@ -706,6 +706,7 @@ public sealed class MonitorView : IConsoleView
     private static string ResolveThreatText(HeuristicThreatSeverityTarja level) => level switch
     {
         HeuristicThreatSeverityTarja.Verde => "VERDE",
+        HeuristicThreatSeverityTarja.Azul => "AZUL",
         HeuristicThreatSeverityTarja.Amarelo => "AMARELA",
         HeuristicThreatSeverityTarja.Laranja => "LARANJA",
         HeuristicThreatSeverityTarja.Vermelho => "VERMELHA",
@@ -715,6 +716,7 @@ public sealed class MonitorView : IConsoleView
     private static string ResolveThreatMarkupColor(HeuristicThreatSeverityTarja level) => level switch
     {
         HeuristicThreatSeverityTarja.Verde => "green3",
+        HeuristicThreatSeverityTarja.Azul => "dodgerblue1",
         HeuristicThreatSeverityTarja.Amarelo => "yellow1",
         HeuristicThreatSeverityTarja.Laranja => "orange3",
         HeuristicThreatSeverityTarja.Vermelho => "red1",
@@ -724,6 +726,7 @@ public sealed class MonitorView : IConsoleView
     private static Color ResolveThreatSpectreColor(HeuristicThreatSeverityTarja level) => level switch
     {
         HeuristicThreatSeverityTarja.Verde => Color.Green,
+        HeuristicThreatSeverityTarja.Azul => Color.Blue,
         HeuristicThreatSeverityTarja.Amarelo => Color.Yellow,
         HeuristicThreatSeverityTarja.Laranja => Color.Orange3,
         HeuristicThreatSeverityTarja.Vermelho => Color.Red,
