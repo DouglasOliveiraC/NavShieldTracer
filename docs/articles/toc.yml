@@ -1,0 +1,14 @@
+- name: Getting Started
+  href: getting-started.md
+- name: Architecture
+  href: architecture.md
+- name: Operations Guide
+  href: operations.md
+- name: Data Model
+  href: data-model.md
+- name: Testing Handbook
+  href: testing-handbook.md
+- name: Reference Materials
+  href: materials/index.md
+- name: API Reference
+  href: api-reference.md

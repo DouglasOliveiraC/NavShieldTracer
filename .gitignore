@@ -29,16 +29,19 @@ CLAUDE.md
 *.temp
 *~
 
-# DocFX (se adicionado no futuro)
-_site/
 
 # Pastas desnecessárias  
 packages/
 TestResults/
 
-# Arquivos de documentação (exceto README.md)
+# Arquivos de documentacao
 *.md
 !README.md
+!docs/**
+
+# DocFX
+docs/_site/
+docs/api/
 
 # Arquivos LaTeX
 *.tex
@@ -64,7 +67,7 @@ APRESENTACAO_*.*
 /sysmon-config-completa.xml
 /sysmon-config-completa.xml.backup
 /DbReader
-/docs
 /NavShieldTracer/ConsoleApp/UI/ConsoleUI.cs.backup
 *.qea
 .idea/
+

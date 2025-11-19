@@ -1,0 +1,94 @@
+:root {
+  font-size: 14px;
+}
+
+@media (min-width: 1600px) {
+  :root {
+    font-size: 14px;
+  }
+}
+
+body {
+  line-height: 1.6;
+  color: #1b1b1b;
+  font-weight: 400;
+}
+
+.article {
+  font-size: 0.95rem;
+  max-width: 1100px;
+}
+
+.article p,
+.article li,
+.article code {
+  font-size: 0.95rem;
+}
+
+.article pre {
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+/* Reduzir drasticamente o tamanho dos menus de navegação */
+.toc .nav > li > a,
+.sideaffix ul > li > a {
+  font-size: 0.8rem;
+  padding: 4px 8px;
+  line-height: 1.4;
+}
+
+.toc .nav > li {
+  margin: 0;
+  padding: 0;
+}
+
+/* Ajustes adicionais para melhorar o layout */
+.navbar {
+  min-height: 50px;
+  font-size: 0.9rem;
+}
+
+/* Reduzir largura das barras laterais */
+.sidetoc {
+  width: 200px !important;
+  max-width: 200px !important;
+  font-size: 0.8rem;
+}
+
+.sideaffix {
+  width: 200px !important;
+  max-width: 200px !important;
+  font-size: 0.8rem;
+}
+
+.affix {
+  width: 200px !important;
+  max-width: 200px !important;
+}
+
+/* Ajustar espaçamento do conteúdo principal */
+.article.grid-right {
+  margin-left: 210px;
+  margin-right: 210px;
+}
+
+/* Reduzir padding interno dos itens de navegação */
+.toc ul {
+  padding-left: 12px;
+  margin: 0;
+}
+
+.sideaffix ul {
+  padding-left: 12px;
+  margin: 0;
+}
+
+/* Compactar os headings nos menus */
+.toc .level1 > li {
+  margin-bottom: 4px;
+}
+
+.toc .level2 > li {
+  margin-bottom: 2px;
+}
