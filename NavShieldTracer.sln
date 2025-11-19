@@ -9,21 +9,30 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TesteSoftware", "TesteSoftw
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{C1A2B3C4-D5E6-F7A8-B9C0-D1E2F3A4B5C6}"
 	ProjectSection(SolutionItems) = preProject
-		README.md = README.md
-		TESTE_GUIA.md = TESTE_GUIA.md
-		sysmon-config-completa.xml = sysmon-config-completa.xml
 		.gitignore = .gitignore
+		README.md = README.md
+		sysmon-config-completa.xml = sysmon-config-completa.xml
+		TESTE_GUIA.md = TESTE_GUIA.md
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Docs", "Docs", "{8AB6B3BA-8C8F-4E0C-9459-D2DFAD1AEF1F}"
 	ProjectSection(SolutionItems) = preProject
-		docs\docfx.json = docs\docfx.json
-		docs\index.md = docs\index.md
-		docs\articles\overview.md = docs\articles\overview.md
+		docs\api-index.md = docs\api-index.md
+		docs\articles\api-reference.md = docs\articles\api-reference.md
 		docs\articles\architecture.md = docs\articles\architecture.md
-		docs\articles\operations.md = docs\articles\operations.md
 		docs\articles\data-model.md = docs\articles\data-model.md
+		docs\docfx.json = docs\docfx.json
+		docs\articles\getting-started.md = docs\articles\getting-started.md
+		docs\articles\index.md = docs\articles\index.md
+		docs\articles\materials\index.md = docs\articles\materials\index.md
+		docs\index.md = docs\index.md
+		docs\templates\custom\styles\main.css = docs\templates\custom\styles\main.css
+		docs\articles\operations.md = docs\articles\operations.md
+		docs\articles\overview.md = docs\articles\overview.md
 		docs\articles\testing-handbook.md = docs\articles\testing-handbook.md
+		docs\articles\materials\toc.yml = docs\articles\materials\toc.yml
+		docs\articles\toc.yml = docs\articles\toc.yml
+		docs\toc.yml = docs\toc.yml
 	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NavShieldTracer.Tests", "NavShieldTracer.Tests\NavShieldTracer.Tests.csproj", "{E4684D1E-403C-4222-B643-E0751688B075}"
