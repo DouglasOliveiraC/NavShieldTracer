@@ -312,15 +312,9 @@ public sealed class NavShieldAppService : IDisposable
     public ResumoTesteAtomico? ObterResumoTeste(int testeId) => _store.ObterResumoTeste(testeId);
 
     /// <summary>
-    /// Obtém a contagem de eventos críticos por Event ID para uma sessão específica.
-    /// Usado para classificação automática de nível de ameaça sem motor heurístico.
+    /// Obtem um snapshot consolidado da sessao de monitoramento ativa, se houver.
     /// </summary>
-    /// <param name="sessionId">ID da sessão a ser analisada.</param>
-    /// <returns>Dicionário com Event ID como chave e contagem como valor.</returns>
-    /// <summary>
-    /// Obtém um snapshot da sessão de monitoramento ativa, se houver.
-    /// </summary>
-    /// <returns>Snapshot da sessão ativa ou null se não houver sessão ativa.</returns>
+    /// <returns>Snapshot da sessao ativa ou null quando nao existe sessao em andamento.</returns>
     public MonitoringSessionSnapshot? GetActiveSessionSnapshot()
     {
         MonitoringSession? session;
@@ -894,6 +888,7 @@ public sealed record ProcessSnapshot(
 /// <param name="TotalEventos">Quantidade de eventos capturados até o momento.</param>
 /// <param name="Statistics">Estatísticas de atividade do processo.</param>
 /// <param name="Logs">Logs recentes da sessão.</param>
+/// <param name="HeuristicSnapshot">Resumo heuristico calculado para a sessao, se disponivel.</param>
 public sealed record MonitoringSessionSnapshot(
     int SessionId,
     MonitoringSessionType Kind,

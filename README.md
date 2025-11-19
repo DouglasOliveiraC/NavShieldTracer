@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?style=flat-square&logo=windows)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-![NavShield Interface](.github/assets/navshield-interface.png?v=2)
+![NavShield Interface](https://raw.githubusercontent.com/DouglasOliveiraC/NavShieldTracer/master/.github/assets/navshield-interface.png)
 
 NavShieldTracer e uma ferramenta de monitoramento de processos para Windows que registra eventos do Sysmon em uma base SQLite para apoiar investigacao forense e operacoes de defesa. A versao 1.0 consolidou todas as entregas planejadas, incluindo coleta confiavel, persistencia estruturada e suite de testes. O modulo de analise comportamental com tecnicas de IA permanece planejado para a proxima iteracao.
 
@@ -130,6 +130,33 @@ dotnet run --project TesteSoftware/TesteSoftware.csproj
 3. **Dependencias dos testes**
    - Sysmon deve estar em execucao.
    - Os caminhos configurados em `appsettings.Test*.json` apontam para o banco em `Logs/`.
+
+## Documentacao navegavel
+
+Os comentarios XML do codigo alimentam um site estatico DocFX dentro da pasta `docs`.
+
+1. **Restaurar a ferramenta DocFX (apenas uma vez por maquina)**
+   ```powershell
+   dotnet tool restore
+   ```
+
+2. **Gerar o site**
+   ```powershell
+   dotnet tool run docfx docs/docfx.json
+   ```
+   O resultado navegavel e publicado em `docs/_site`. Para revisar localmente execute `dotnet tool run docfx serve docs/_site` e abra `http://localhost:8080`.
+
+> Observacao: alguns artigos em `docs/articles` referenciam arquivos externos que ainda nao estao presentes no repositorio. O DocFX mostrara avisos enquanto esses includes nao forem adicionados.
+
+## Publicar no GitHub Pages
+
+1. No reposit�rio do GitHub, acesse *Settings ▸ Pages* e escolha *GitHub Actions* como fonte.
+2. Certifique-se de que o workflow `Publish Docs` esteja habilitado (arquivo `.github/workflows/docs.yml`).
+3. A cada push na branch `master` que altere `docs/` ou o c�digo, o workflow vai:
+   - Restaurar as ferramentas (`dotnet tool restore`)
+   - Rodar o DocFX (`dotnet tool run docfx docs/docfx.json`)
+   - Publicar o conte�do de `docs/_site` na branch `gh-pages`.
+4. O link final do site aparece na aba *Actions ▸ Publish Docs ▸ Deploy to GitHub Pages* ou em *Settings ▸ Pages*.
 
 ## Roadmap pos-versao 1.0
 

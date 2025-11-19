@@ -13,6 +13,9 @@ namespace NavShieldTracer.ConsoleApp.UI.Views;
     {
         private readonly ViewContext _context;
 
+        /// <summary>
+        /// Intervalo usado para atualizar o painel de status e saude global.
+        /// </summary>
         public TimeSpan RefreshInterval => TimeSpan.FromSeconds(2); // Atualiza a cada 2 segundos
 
         /// <summary>

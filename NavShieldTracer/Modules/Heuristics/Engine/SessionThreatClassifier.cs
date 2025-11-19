@@ -126,7 +126,7 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
                 ThreatSeverityTarja.Laranja => "Alto - Infraestrutura critica degradada com restabelecimento possivel.",
                 ThreatSeverityTarja.Vermelho => "Severo - Impacto critico com restabelecimento fora do aceitavel.",
                 _ => "Desconhecido"
-            };        };
+            };
         }
 
         /// <summary>

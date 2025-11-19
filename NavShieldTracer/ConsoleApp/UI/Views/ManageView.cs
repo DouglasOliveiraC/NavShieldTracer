@@ -13,6 +13,10 @@ namespace NavShieldTracer.ConsoleApp.UI.Views;
 public sealed class ManageView : IConsoleView
 {
     private readonly ViewContext _context;
+
+    /// <summary>
+    /// Intervalo padrao para atualizar informacoes de testes catalogados.
+    /// </summary>
     public TimeSpan RefreshInterval => TimeSpan.FromSeconds(3); // Atualiza a cada 3 segundos
 
     private string _manageIdInput = string.Empty;

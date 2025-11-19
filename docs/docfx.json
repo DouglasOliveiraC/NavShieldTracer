@@ -1,0 +1,61 @@
+{
+  "metadata": [
+    {
+      "src": [
+        {
+          "src": "../NavShieldTracer",
+          "files": [
+            "NavShieldTracer.csproj"
+          ]
+        },
+        {
+          "src": "../TesteSoftware",
+          "files": [
+            "TesteSoftware.csproj"
+          ]
+        }
+      ],
+      "dest": "api"
+    }
+  ],
+  "build": {
+    "content": [
+      {
+        "files": [
+          "index.md",
+          "toc.yml",
+          "api-index.md",
+          "articles/**.md"
+        ]
+      },
+      {
+        "files": [
+          "api/**.yml"
+        ]
+      }
+    ],
+    "resource": [
+      {
+        "files": [
+          "images/**"
+        ]
+      },
+      {
+        "src": "..",
+        "files": [
+          "LICENSE"
+        ]
+      }
+    ],
+    "globalMetadata": {
+      "_appName": "NavShieldTracer",
+      "_appTitle": "NavShieldTracer Docs",
+      "_appFooter": "NavShieldTracer documentation generated with DocFX"
+    },
+    "template": [
+      "default",
+      "templates/custom"
+    ],
+    "dest": "_site"
+  }
+}

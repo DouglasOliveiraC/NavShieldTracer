@@ -21,6 +21,9 @@ public sealed class CatalogView : IConsoleView
 {
     private readonly ViewContext _context;
 
+    /// <summary>
+    /// Intervalo de atualizacao usado para manter a view responsiva ao estado da sessao.
+    /// </summary>
     public TimeSpan RefreshInterval
     {
         get

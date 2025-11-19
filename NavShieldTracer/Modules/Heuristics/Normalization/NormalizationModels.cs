@@ -8,10 +8,25 @@ namespace NavShieldTracer.Modules.Heuristics.Normalization
     /// </summary>
     public enum ThreatSeverityTarja
     {
+        /// <summary>
+        /// Operacoes normais sem indicios de atividade hostil.
+        /// </summary>
         Verde,
+        /// <summary>
+        /// Monitoramento reforcado e correlacao de alertas.
+        /// </summary>
         Azul,
+        /// <summary>
+        /// Risco medio que exige analise e possivel mitigacao.
+        /// </summary>
         Amarelo,
+        /// <summary>
+        /// Incidente com impacto relevante e resposta urgente.
+        /// </summary>
         Laranja,
+        /// <summary>
+        /// Situacao critica com prejuizo severo e alto grau de prioridade.
+        /// </summary>
         Vermelho
     }
 

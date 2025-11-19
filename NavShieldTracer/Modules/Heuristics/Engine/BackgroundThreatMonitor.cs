@@ -63,6 +63,12 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
         /// </summary>
         public bool IsRunning => _monitoringTask != null && !_monitoringTask.IsCompleted;
 
+        /// <summary>
+        /// Inicializa o monitoramento em background para uma sessao espec�fica.
+        /// </summary>
+        /// <param name="store">Armazenamento de eventos que servir� de fonte.</param>
+        /// <param name="sessionId">Identificador da sessao sendo analisada.</param>
+        /// <param name="config">Configura�oes heur�sticas opcionais.</param>
         public BackgroundThreatMonitor(
             SqliteEventStore store,
             int sessionId,
@@ -336,6 +342,9 @@ namespace NavShieldTracer.Modules.Heuristics.Engine
             return stats;
         }
 
+        /// <summary>
+        /// Libera recursos usados pelo monitor e interrompe o loop em execu�ao.
+        /// </summary>
         public void Dispose()
         {
             if (_disposed)

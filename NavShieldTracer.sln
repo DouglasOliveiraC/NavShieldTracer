@@ -15,6 +15,17 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		.gitignore = .gitignore
 	EndProjectSection
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Docs", "Docs", "{8AB6B3BA-8C8F-4E0C-9459-D2DFAD1AEF1F}"
+	ProjectSection(SolutionItems) = preProject
+		docs\docfx.json = docs\docfx.json
+		docs\index.md = docs\index.md
+		docs\articles\overview.md = docs\articles\overview.md
+		docs\articles\architecture.md = docs\articles\architecture.md
+		docs\articles\operations.md = docs\articles\operations.md
+		docs\articles\data-model.md = docs\articles\data-model.md
+		docs\articles\testing-handbook.md = docs\articles\testing-handbook.md
+	EndProjectSection
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NavShieldTracer.Tests", "NavShieldTracer.Tests\NavShieldTracer.Tests.csproj", "{E4684D1E-403C-4222-B643-E0751688B075}"
 EndProject
 Global

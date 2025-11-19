@@ -17,6 +17,9 @@ namespace NavShieldTracer.ConsoleApp.UI.Views;
 public sealed class TestsView : IConsoleView
 {
     private readonly ViewContext _context;
+    /// <summary>
+    /// Intervalo usado para atualizar a listagem de testes, sessoes e alertas.
+    /// </summary>
     public TimeSpan RefreshInterval => TimeSpan.FromSeconds(3); // Atualiza a cada 3 segundos
 
     private string _testsIdInput = string.Empty;

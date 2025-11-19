@@ -23,6 +23,9 @@ public sealed class MonitorView : IConsoleView
 
     private readonly ViewContext _context;
 
+    /// <summary>
+    /// Intervalo agressivo para atualizar estatisticas da sessao de monitoramento.
+    /// </summary>
     public TimeSpan RefreshInterval => TimeSpan.FromMilliseconds(500); // Atualiza a cada 500ms
 
     // Estado de monitoramento
